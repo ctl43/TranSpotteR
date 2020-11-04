@@ -1,0 +1,7 @@
+library(Biostrings)
+library(data.table)
+library(GenomicRanges)
+library(igraph)
+library(ShortRead)
+library(Rsamtools)
+library(parallel)
