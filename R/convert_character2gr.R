@@ -1,3 +1,9 @@
+#' @export
+#' @importFrom GenomicRanges GRanges
+#' @importFrom S4Vectors split
+#' @importFrom IRanges IRanges
+
+
 # Converting read annotation to genomic range
 convert_character2gr <- function(y){
   y <- y[grepl(":", y)]

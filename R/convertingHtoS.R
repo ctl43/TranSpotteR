@@ -1,3 +1,6 @@
+#' @export
+#' @importFrom Biostrings reverseComplement DNAStringSet
+
 convertingHtoS <- function(x, unique_id="QNAME_id"){
   is_rc <- !!bitwAnd(x$FLAG, 0x10)
   is_primary <- !bitwAnd(x$FLAG, 0x100)
