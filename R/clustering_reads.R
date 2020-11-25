@@ -3,7 +3,8 @@
 #' @importFrom S4Vectors 'elementMetadata<-'
 #' @importFrom BiocGenerics strand start end 'strand<-'
 
-clustering_reads <- function(gr, min_peak = 5, size_tol = 0){
+clustering_reads <- function(total, min_peak = 5, size_tol = 0){
+  gr <- total[total$is_anchor | total$is_disc]
   p <- gr[strand(gr)=="+"]
   m <- gr[strand(gr)=="-"]
   p_cluster <- filter_read_by_coverage(p, min_peak = min_peak)
@@ -25,5 +26,18 @@ clustering_reads <- function(gr, min_peak = 5, size_tol = 0){
   m_group <- m_ol@from
   names(m_group) <- m[m_ol@to]$QNAME
   m_cluster$members <- split(m[m_ol@to], m_group)
-  list(p = p_cluster, m = m_cluster)
+  combined <- c(p_cluster, m_cluster)
+
+  # Getting partner reads
+  partner_ids <- .get_partner_read_id(unlist(combined$members, use.names = FALSE)$QNAME_id)
+  combined$partners <- split(total[partner_ids], rep(seq_along(combined), lengths(combined$members)))
+  combined
+}
+
+.get_partner_read_id <- function(x){
+  out <- rep("", length(x))
+  is_first <- grepl("_1", x)
+  out[is_first] <- sub("_1", "_2", x[is_first])
+  out[!is_first] <- sub("_2", "_1", x[!is_first])
+  out
 }
