@@ -6,7 +6,7 @@
 using namespace Rcpp;
 
 // overlapper
-Rcpp::List overlapper(std::vector< std::string > seq1_set, std::vector< std::string > seq2_set);
+Rcpp::DataFrame overlapper(std::vector< std::string > seq1_set, std::vector< std::string > seq2_set);
 RcppExport SEXP _TranSpotteR_overlapper(SEXP seq1_setSEXP, SEXP seq2_setSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
