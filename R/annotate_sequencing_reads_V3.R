@@ -6,7 +6,16 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 
 # A wrapper for read annotation
-annotate_constructed_reads <- function(clusters, partner_is_anchor = FALSE,  BPPARAM = MulticoreParam(workers = 3)){
+annotate_constructed_reads <- function(x, partner_is_anchor = TRUE, BPPARAM = MulticoreParam(workers = 3L)){
+  p <- x[strand(x) == "+"]
+  m <- x[strand(x) == "-"]
+  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, partner_is_anchor = partner_is_anchor)
+  out <- c(out[[1]], out[[2]])
+  names(out) <- seq_along(out)
+  return(out)
+}
+
+.internal_annotation <-  function(clusters, partner_is_anchor = FALSE,  BPPARAM = MulticoreParam(workers = 3)){
   cluster_anno <- .annotate_reads(unlist(clusters$cluster_contigs), BPPARAM = BPPARAM)
   partner_anno <- .annotate_reads(unlist(clusters$partner_contigs), BPPARAM = BPPARAM)
   long_anno <- .annotate_reads(unlist(clusters$long_contigs), BPPARAM = BPPARAM)
@@ -113,14 +122,15 @@ annotate_constructed_reads <- function(clusters, partner_is_anchor = FALSE,  BPP
 #' @importFrom Biostrings reverseComplement BStringSet DNAStringSet
 #' @importFrom BiocGenerics paste
 
-.annotate_reads <- function(seq, ref = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa", BPPARAM = MulticoreParam(workers = 3)){
+.annotate_reads <- function(seq, ref = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
+                            BPPARAM = MulticoreParam(workers = 3)){
   if(length(seq) == 0){
     return(NULL)
   }
   # Mapping to LINE1 sequence
   aln_1 <- bwa_alignment(seq, ref = ref, samtools_param = "")
   aln_1 <- convertingHtoS(aln_1, unique_id = "QNAME")
-  mapping_1 <- sam2gr(aln_1[aln_1$CIGAR!="*",])
+  mapping_1 <- sam2gr(aln_1[aln_1$CIGAR != "*",])
 
   # Annotating the reads
   aln_1$unified_cigar <- unify_cigar_strand(aln_1$CIGAR, flag = aln_1$FLAG, to = "+", along_query=TRUE)
@@ -134,11 +144,11 @@ annotate_constructed_reads <- function(clusters, partner_is_anchor = FALSE,  BPP
 
   aln_2 <- bplapply(clipped_seq_1, bwa_alignment, call_bwa = "bwa mem ", samtools_param = "-F 128 -F 4", BPPARAM = BPPARAM)
   aln_2 <- lapply(aln_2, convertingHtoS, unique_id = "QNAME")
-  aln_2 <- lapply(aln_2, function(x)x[x$MAPQ>10,])
+  aln_2 <- lapply(aln_2, function(x)x[x$MAPQ > 10,])
   mapping_2 <- lapply(aln_2, sam2gr)
 
   middle_aln_2 <- bwa_alignment(unlist(middle$seq), call_bwa = "bwa mem ", samtools_param = "-F 128 -F 4")
-  middle_grp <- sub("\\.[0-9]+$","\\1",middle_aln_2$QNAME)
+  middle_grp <- sub("\\.[0-9]+$", "\\1", middle_aln_2$QNAME)
   middle_aln_2 <- convertingHtoS(middle_aln_2, unique_id = "QNAME")
   mid_mapping <- sam2gr(middle_aln_2)
   middle_coordinate <- as.character(mid_mapping)
@@ -146,7 +156,7 @@ annotate_constructed_reads <- function(clusters, partner_is_anchor = FALSE,  BPP
   mid_end <- unlist(middle$end)[names(middle_coordinate)]
 
   # Annotating the sequencing reads
-  anno <- aln_1[!duplicated(aln_1$QNAME),]
+  anno <- aln_1[!duplicated(aln_1$QNAME), ]
   anno_seq <- DNAStringSet(anno$SEQUENCE)
   is_rc <- ifelse(bitwAnd(anno$FLAG, 0x10), "-", "+") == "-"
   anno_seq[is_rc] <- reverseComplement(DNAStringSet(anno$SEQUENCE[is_rc]))
