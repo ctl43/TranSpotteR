@@ -2,10 +2,13 @@ Package: TranSpotteR
 Type: Package
 Title: What the Package Does (Title Case)
 Version: 0.1.0
-Author: Who wrote it
-Maintainer: The package maintainer <yourself@somewhere.net>
+Authors@R: c(person("Cheuk-Ting", "Law", role = "cre", email = "infinite.monkeys.with.keyboards@gmail.com"))
 Description: More about what it does (maybe more than one line)
     Use four spaces when indenting paragraphs within the Description.
-License: What license is it under?
+License: GPL-3
 Encoding: UTF-8
 LazyData: true
+Imports: Rcpp, GenomicRanges, Biostrings, data.table
+LinkingTo: Rcpp, RSeqAn 
+SystemRequirements: C++14
+RoxygenNote: 7.1.1
