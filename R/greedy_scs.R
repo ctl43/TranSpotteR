@@ -48,6 +48,17 @@ overlap_reads <- function(vec, min_pid = 85, min_len = 10){
 
 #' @export
 greedy_scs <- function(vec, msa_result = FALSE, return_no_assembly = FALSE, add_id = TRUE){
+  # Dealing with NULL vector
+  if(is.null(vec)){
+    consensus <- NULL
+    msa_out <- list()
+    if(msa_result){
+      return(list(consensus = consensus, msa = msa_out))
+    }else{
+      return(consensus)
+    }
+  }
+
   names(vec) <- seq_along(vec)
   original_vec <- vec
   # This can be vastly improved by not calculating the overlaps that have been calculated before
@@ -66,7 +77,6 @@ greedy_scs <- function(vec, msa_result = FALSE, return_no_assembly = FALSE, add_
       break
     }
   }
-
   # Picking out those read that did not assemble
   ass_id <- names(vec)
   solo_id <- ass_id[!grepl("_", ass_id)]
@@ -78,9 +88,12 @@ greedy_scs <- function(vec, msa_result = FALSE, return_no_assembly = FALSE, add_
   names(consensus) <- non_solo_id
   names(msa_out) <- non_solo_id
 
-  if(add_id){
+  consensus <- unlist(consensus)
+
+  if(add_id & length(consensus) > 0){
     names(consensus) <- seq_along(consensus)
   }
+
   if(return_no_assembly){
     consensus <- c(consensus, vec[solo_id])
     msa_out <- c(msa_out, split(vec[solo_id], solo_id))
