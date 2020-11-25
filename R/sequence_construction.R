@@ -8,6 +8,14 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 
 sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 20)){
+  p <- x[strand(x) == "+"]
+  m <- x[strand(x) == "-"]
+  p <- .internal_construction(p, BPPARAM = BPPARAM)
+  m <- .internal_construction(m, BPPARAM = BPPARAM)
+  return(c(p, m))
+}
+
+.internal_construction <- function(x, BPPARAM){
   sign <- runValue(strand(x))
   if(length(sign)!=1){
     stop()
@@ -16,7 +24,7 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 20)){
   info <- S4Vectors::elementMetadata(unlist(x$partners))
   partner_seq <- info$SEQUENCE
   partner_seq <- DNAStringSet(partner_seq)
-  if(sign=="+"){
+  if(sign == "+"){
     partner_seq[!info$is_rc] <- reverseComplement(partner_seq[!info$is_rc])
   }else{
     partner_seq[info$is_rc] <- reverseComplement(partner_seq[info$is_rc])
@@ -36,8 +44,11 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 20)){
   cluster_contigs <- bplapply(cluster_seq, greedy_scs, BPPARAM = BPPARAM)
 
   # Assembling both
-  merged_seq <- mapply(function(x,y)c(x,y),x = partner_contigs, y=cluster_contigs, SIMPLIFY = FALSE)
-  merged_contigs <- bplapply(merged_seq, greedy_scs, BPPARAM = BPPARAM)
+  has_both <- lengths(partner_contigs) > 0 & lengths(cluster_contigs) > 0
+  merged_contigs <- rep(list(c()), length(partner_contigs))
+  merged_seq <- mapply(function(x,y)c(x,y),x = partner_contigs[has_both], y = cluster_contigs[has_both], SIMPLIFY = FALSE)
+  merged_contigs[has_both] <- bplapply(merged_seq, greedy_scs, BPPARAM = BPPARAM)
+  names(merged_contigs) <- names(partner_contigs)
 
   # Storing data
   names(cluster_contigs) <- names(partner_contigs) <- names(merged_contigs) <- seq_along(x)
