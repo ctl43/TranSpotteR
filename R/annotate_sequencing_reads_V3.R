@@ -52,7 +52,7 @@ multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_rep
   if(length(strand) > 1){
     stop("")
   }
-  # Can be speed up by combining all the reads together and only doing once.
+  # Can be sped up by combining all the reads together and only doing once.
   cluster_anno <- .annotate_reads(unlist(clusters$cluster_contigs), BPPARAM = BPPARAM)
   partner_anno <- .annotate_reads(unlist(clusters$partner_contigs), BPPARAM = BPPARAM)
   long_anno <- .annotate_reads(unlist(clusters$long_contigs), BPPARAM = BPPARAM)
@@ -142,7 +142,7 @@ cigar_convert <- function(cigar_string, from, to){
   middle <- clipped_seq_1$middle
   clipped_seq_1 <- clipped_seq_1$clipped
 
-  # Can be speed up by combining all the reads together and only doing once.
+  # Can be sped up by combining all the reads together and only doing once.
   aln_2 <- bplapply(clipped_seq_1, bwa_alignment, call_bwa = "bwa mem ",
                     samtools_param = "-F 128 -F 4", BPPARAM = BPPARAM)
   aln_2 <- lapply(aln_2, convertingHtoS, unique_id = "QNAME")
@@ -152,9 +152,9 @@ cigar_convert <- function(cigar_string, from, to){
   mapping_2 <- lapply(aln_2, sam2gr)
   middle_aln_2 <- bwa_alignment(unlist(middle$seq), call_bwa = "bwa mem ", samtools_param = "-F 128 -F 4")
   middle_aln_2 <- convertingHtoS(middle_aln_2, unique_id = "QNAME")
-  middle_aln_2$unified_cigar <- unify_cigar_strand(middle_aln_2$CIGAR, flag = aln_1$FLAG, to = "+", along_query = TRUE)
+  middle_aln_2$unified_cigar <- unify_cigar_strand(middle_aln_2$CIGAR, flag = middle_aln_2$FLAG, to = "+", along_query = TRUE)
 
-  # Annotating the sequencing reads3
+  # Annotating the sequencing reads
   # Getting the location of the mapped location in the reads
   mapped_1 <- aln_1[!aln_1$CIGAR=="*",]
   mapping1_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(mapped_1$unified_cigar, from = "I", to = "M"), ops = "M"))
