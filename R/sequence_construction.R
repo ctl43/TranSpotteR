@@ -1,9 +1,5 @@
 #' @export
-#' @importFrom GenomicRanges GRanges split
-#' @importFrom S4Vectors 'elementMetadata<-' Rle runValue elementMetadata
-#' @importFrom IRanges subsetByOverlaps IntegerList
-#' @importFrom csaw mergeWindows
-#' @importFrom GenomeInfoDb seqinfo
+#' @importFrom S4Vectors 'elementMetadata<-' runValue elementMetadata
 #' @importFrom Biostrings DNAStringSet DNAStringSetList reverseComplement
 #' @importFrom BiocParallel bplapply MulticoreParam
 
@@ -17,11 +13,11 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 20)){
 
 .internal_construction <- function(x, BPPARAM){
   sign <- runValue(strand(x))
-  if(length(sign)!=1){
+  if(length(sign)>1){
     stop()
   }
 
-  info <- S4Vectors::elementMetadata(unlist(x$partners))
+  info <- elementMetadata(unlist(x$partners))
   partner_seq <- info$SEQUENCE
   partner_seq <- DNAStringSet(partner_seq)
   if(sign == "+"){
@@ -38,9 +34,7 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 20)){
   partner_contigs <- bplapply(partner_seq, greedy_scs, BPPARAM = BPPARAM)
 
   # Assembling cluster sequences
-  grp <- rep(seq_along(x$members), lengths(x$members))
-  grp <- factor(grp, levels = seq_along(x$members))
-  cluster_seq <- split(unlist(x$members)$SEQUENCE, grp)
+  cluster_seq <- lapply(x$members, function(x)x$SEQUENCE)
   cluster_contigs <- bplapply(cluster_seq, greedy_scs, BPPARAM = BPPARAM)
 
   # Assembling both
@@ -48,10 +42,8 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 20)){
   merged_contigs <- rep(list(c()), length(partner_contigs))
   merged_seq <- mapply(function(x,y)c(x,y),x = partner_contigs[has_both], y = cluster_contigs[has_both], SIMPLIFY = FALSE)
   merged_contigs[has_both] <- bplapply(merged_seq, greedy_scs, BPPARAM = BPPARAM)
-  names(merged_contigs) <- names(partner_contigs)
 
   # Storing data
-  names(cluster_contigs) <- names(partner_contigs) <- names(merged_contigs) <- seq_along(x)
   partner_contigs <- DNAStringSetList(lapply(partner_contigs, DNAStringSet)) # to preserve the sequence names
   cluster_contigs <- DNAStringSetList(lapply(cluster_contigs, DNAStringSet))
   merged_contigs <- DNAStringSetList(lapply(merged_contigs, DNAStringSet))
