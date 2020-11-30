@@ -1,7 +1,6 @@
 #' @export
 #' @importFrom GenomicRanges GRanges
 #' @importFrom IRanges IRanges
-#' @importFrom data.table fread
 #' @importFrom GenomicAlignments cigarWidthAlongReferenceSpace
 
 
