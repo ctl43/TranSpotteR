@@ -1,6 +1,7 @@
 #' @export
 #' @importFrom data.table data.table
 #' @importFrom Biostrings consensusMatrix
+#' @importFrom uuid UUIDgenerate
 
 # Finding the overlapping percentage and overlapping length between pair
 
@@ -91,7 +92,7 @@ greedy_scs <- function(vec, msa_result = FALSE, return_no_assembly = FALSE, add_
   consensus <- unlist(consensus)
 
   if(add_id & length(consensus) > 0){
-    names(consensus) <- seq_along(consensus)
+    names(consensus) <- UUIDgenerate(n = length(consensus))
   }
 
   if(return_no_assembly){
