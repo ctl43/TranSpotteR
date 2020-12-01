@@ -20,13 +20,23 @@ multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_rep
     end <- end(ir)
     to_replace <- elementMetadata(ir)[[to_replace_element]]
   }
+  n_start <- length(start)
+  n_end <- length(end)
+  if(n_start == 0 | n_end == 0 ){
+    return(as.character(x))
+  }
+
+  if(n_start != n_end){
+    stop("The length of start and end are not the same.")
+  }
+
 
   idx <- order(start)
   start <- start[idx]
   end <- end[idx]
   to_replace <- to_replace[idx]
   # To deal with overlapping range
-  # The one one the left hand side will occupy the place first, then the second one.
+  # The one on the left hand side will occupy the place first, then the second one.
   diff <- start[-1] - head(end, -1)
   diff[diff <= 0] <- 1
   start <- c(start[1], diff + head(end, -1))
@@ -40,7 +50,7 @@ multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_rep
     collected <- c(collected, substr(x, need_start[i], need_end[i]))
     collected <- c(collected, to_replace[i])
   }
-  out <- paste(collected, collapse = " ")
+  out <- paste(collected[collected!=""], collapse = " ")
   sub("^ ", "", out)
 }
 
@@ -48,10 +58,15 @@ multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_rep
 #' @export
 #' @importFrom IRanges CharacterList
 .internal_annotation <-  function(clusters, partner_is_anchor = FALSE,  BPPARAM = MulticoreParam(workers = 3)){
-  strand <- as.character(strand(clusters)[1])
+  strand <- as.character(unique(strand(clusters)))
   if(length(strand) > 1){
     stop("")
   }
+
+  if(length(strand) == 0){
+    return(NULL)
+  }
+
   # Can be sped up by combining all the reads together and only doing once.
   cluster_anno <- .annotate_reads(unlist(clusters$cluster_contigs), BPPARAM = BPPARAM)
   partner_anno <- .annotate_reads(unlist(clusters$partner_contigs), BPPARAM = BPPARAM)
@@ -83,30 +98,25 @@ multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_rep
   }
 
   combined_anno[any(combined_anno == " NNNNN ")] <- CharacterList(character(0))
-
+  combined_anno[!both_mapped] <- CharacterList(character(0))
   combined_storage <- CharacterList(mapply(c, long_anno, combined_anno, SIMPLIFY = FALSE))
   clusters$read_annotation <- combined_storage
   clusters
 }
 
-#' @importFrom BiocGenerics cbind do.call
-.combined_rle <- function(x){
-  if(length(x) == 1){
-    return(x[[1]])
-  }
-  x <- do.call(cbind, x)
-  result <- x[, 2]
-  for(i in 3 : ncol(x)){
-    result[result == "S"] <- x[, i][result == "S"]
-  }
-  out <- Rle(result, x[, 1])
-  out
-}
-
 #' @importFrom  GenomicAlignments cigarToRleList
 cigar_convert <- function(cigar_string, from, to){
   rle_list <-  cigarToRleList(cigar_string)
-  as.character(sapply(rle_list, function(x){x[x == from] <- to; rle_to_cigar(x)}))
+  grp <- rep(seq_along(rle_list), lengths(rle_list))
+  rle_list <- unlist(rle_list)
+  rle_list[rle_list == from] <- to
+  rle_list <- split(rle_list, grp)
+
+  # Converting to cigar strings
+  rl <- runLength(rle_list)
+  rv <- runValue(rle_list)
+  grp <- rep(seq_along(rl), lengths(rl))
+  as.character(lapply(split(paste0(unlist(rl),unlist(rv)), grp), paste, collapse = ""))
 }
 
 #' @export
@@ -136,7 +146,7 @@ cigar_convert <- function(cigar_string, from, to){
   aln_1$unified_cigar <- unify_cigar_strand(aln_1$CIGAR, flag = aln_1$FLAG, to = "+", along_query = TRUE)
 
   # Getting clipped sequences
-  clipped_seq_1 <- get_unmapped_clipped_read(aln_1, include_middle_unmapped = TRUE)
+  clipped_seq_1 <- get_unmapped_clipped_read(aln_1, include_middle_unmapped = TRUE) # need debug
 
   # Mapping to genome
   middle <- clipped_seq_1$middle
@@ -177,8 +187,8 @@ cigar_convert <- function(cigar_string, from, to){
 
   # For middle clipped regions
   middle_grp <- sub("\\.[0-9]+$", "\\1", middle_aln_2$QNAME)
-  mid_start <- unlist(middle$start[middle_grp])
-  mid_end <- unlist(middle$end[middle_grp])
+  mid_start <- unlist(middle$start[middle_grp])[middle_aln_2$QNAME]
+  mid_end <- unlist(middle$end[middle_grp])[middle_aln_2$QNAME]
   mid_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(middle_aln_2$unified_cigar, from = "I", to = "M"), ops = "M"))
   mid_read_loc <- IRanges(start = mid_start + start(mid_clipped_read_loc) - 1,
                           end = mid_start + end(mid_clipped_read_loc) - 1 )
@@ -194,6 +204,5 @@ cigar_convert <- function(cigar_string, from, to){
   combined_read_loc <- c(mapping1_read_loc, left_read_loc, right_read_loc, mid_read_loc, unmapped_read_loc)
   combined_read_loc <- split(combined_read_loc, factor(elementMetadata(combined_read_loc)$QNAME, levels = names(seq)))
   anno_out <- mapply(multiple_replacement, x = seq, ir = combined_read_loc,  to_replace_element = "mapped_regions")
-
   return(anno_out)
 }
