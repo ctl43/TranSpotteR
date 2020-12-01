@@ -98,6 +98,19 @@ unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query=FALSE){
   out
 }
 
+#' @importFrom BiocGenerics cbind do.call
+.combined_rle <- function(x){
+  if(length(x) == 1){
+    return(x[[1]])
+  }
+  x <- do.call(cbind, x)
+  result <- x[, 2]
+  for(i in 3 : ncol(x)){
+    result[result == "S"] <- x[, i][result == "S"]
+  }
+  out <- Rle(result, x[, 1])
+  out
+}
 
 #' @export
 #' @importFrom S4Vectors split
@@ -133,7 +146,7 @@ get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE)
   }
 
   # Making sure the sequence are the same length as the cigar string
-  len <- sum(IntegerList(explodeCigarOpLengths(cigar, ops = c("S","H","M","I"))))
+  len <- cigarWidthAlongQuerySpace(cigar)
   if(!all(len == nchar(seq))){
     stop()
   }
@@ -160,8 +173,8 @@ get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE)
   result <- list(unmapped = DNAStringSet(unmapped_result), left = DNAStringSet(l_result), right = DNAStringSet(r_result))
 
   if(include_middle_unmapped){
-    cigar_rle <- cigarToRleList(unified_cigar)
-    cigar_rle <- split(cigar_rle, group)
+    cigar_rle <- as.list(cigarToRleList(unified_cigar))
+    cigar_rle <- base::split(cigar_rle, group)
     cigar_rle <- lapply(cigar_rle, .combined_rle)
     combined_cigar <- sapply(cigar_rle, rle_to_cigar)
     middle_clipped_pos <- .get_middle_unmapped_pos(combined_cigar)
@@ -170,10 +183,10 @@ get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE)
     m_seq <- rep(seq, lengths(m_start_tmp))
     m_grp <- rep(names(combined_cigar), lengths(m_start_tmp))
     m_clipped <- substr(m_seq, unlist(m_start_tmp), unlist(m_end_tmp))
-    m_clipped <- split(unname(m_clipped), m_grp)
+    m_clipped <- CharacterList(split(unname(m_clipped), m_grp))
+    m_clipped[any(m_clipped=="")] <- CharacterList(character(0))
     m_clipped <- lapply(m_clipped, function(x){names(x) <- seq_along(x); x})
     m_result[names(m_clipped)] <- CharacterList(m_clipped)
-    m_result <- DNAStringSetList(lapply(m_result, DNAStringSet))
     m_start[names(m_start_tmp)] <- IntegerList(m_start_tmp)
     m_end[names(m_end_tmp)] <- IntegerList(m_end_tmp)
     result <- list(clipped=result, middle=list(start=m_start,end=m_end, seq=m_result))
