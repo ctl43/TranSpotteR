@@ -1,21 +1,31 @@
 #' @export
 #' @importFrom GenomicRanges findOverlaps
 #' @importFrom igraph graph_from_data_frame components
+#' @importFrom GenomeInfoDb seqnames
+#' @importFrom IRanges CharacterList
+#' @importFrom S4Vectors grepl
+#' @importFrom BiocGenerics match
 
-relating_cluster <- function(cluster){
-  anchors <- cluster$combined_anchor
+relating_cluster <- function(cluster, insert_seqname = "Hot_L1_polyA", overlap_distance = 1000){
+  # Getting the anchor information
+  grp <- factor(rep(seq_along(cluster), lengths(cluster$read_annotation)), levels = seq_along(cluster))
+  anno <- unname(unlist(cluster$read_annotation))
+  anno <- CharacterList(strsplit(anno, " "))
+  anno_ranges <- anno[S4Vectors::grepl(":",anno)]
+  tmp_grp <- factor(rep(seq_along(anno_ranges), lengths(anno_ranges)), levels = seq_along(anno_ranges))
+  gr <- unlist(convert_character2gr(unlist(anno_ranges)))
+  grp <- rep(grp, table(tmp_grp)) # complex grp
+  gr <- S4Vectors::split(gr, grp)
+  gr <- unique(gr)
+
+  # Groupping related anchors
+  anchors <- gr[!(BiocGenerics::match(GenomeInfoDb::seqnames(gr), insert_seqname, nomatch = 0)>0)]
   names(anchors) <- seq_along(anchors)
-  origins <- rep(seq_along(anchors), lengths(anchors))
-  pool_anchor <- unlist(anchors, use.names = FALSE)
-  pool_anchor$origins <- origins
-  unique_id <- paste0(origins, "_", names(pool_anchor))
-  tmp_grp <- factor(unique_id, levels = unique(unique_id))
-  pool_anchor <- split(pool_anchor, tmp_grp)
-  ol <- findOverlaps(pool_anchor, pool_anchor + 1000, ignore.strand = TRUE)
-  origins_2 <- as.integer(gsub("_.*", "", names(pool_anchor)))
-  df <- cbind.data.frame(origins_2[ol@from], origins_2[ol@to])
+  ol <- findOverlaps(anchors, anchors + overlap_distance, ignore.strand = TRUE)
+  df <- cbind.data.frame(ol@from, ol@to)
   loc <- unique(unlist(df))
   graph <- graph_from_data_frame(df, directed = FALSE)
-  cluster$group[loc] <- as.integer(components(graph)$membership)
+  elementMetadata(cluster)$group <- NA
+  elementMetadata(cluster)$group[loc] <- as.integer(components(graph)$membership)
   cluster
 }
