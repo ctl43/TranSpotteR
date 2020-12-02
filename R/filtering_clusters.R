@@ -4,32 +4,44 @@
 #' @importFrom GenomeInfoDb seqnames
 
 filter_clusters <- function(x){
-  # Flattening the data before filtering
-  anno_grp <- rep(x$group, lengths(x$combined_read_anno))
-  flat_anno <- unlist(x$combined_read_anno)
+  # As the inference process is complicated and takes time, this function is to filter those obviously useless information
+  # x <- clusters
+  relationship_grp <- factor(rep(x$group, lengths(x$read_annotation)), levels = sort(unique(x$group)))
+  grp <- factor(rep(seq_along(x), lengths(x$read_annotation)), levels = seq_along(x))
+  flat_anno <- unname(unlist(x$read_annotation))
 
-  ## Filtering group without information
-  ok_a <- sum(grepl(":", flat_anno)|grepl("[A-Z]", flat_anno)) > 1  # To filter contig that fully mapped to a single region with no extra information
-  ok_b <- !(any(grepl("Hot_L1_polyA", flat_anno)) & sum(grepl(":", flat_anno)) == 1) # To filter contigs only mapping to LINE1
   gr <- convert_character2gr(flat_anno)
-  is_long <- unname(!any(grepl("NNNNN", flat_anno)))
-  elementMetadata(gr)$is_long <- is_long
-  elementMetadata(gr)$anno <- flat_anno
-  elementMetadata(gr)$grp <- anno_grp
-  elementMetadata(gr)$count <- rep(x$count, lengths(x$combined_read_anno))
-  elementMetadata(gr)$peak_count <- rep(x$peak_count, lengths(x$combined_read_anno))
+  not_insert_only <- sum(grepl("Hot_L1_polyA", seqnames(gr))) != lengths(gr) # reads with insert sequence has not anchor information are useless
 
-  gr_start <- range(start(range(gr)))
-  gr_start[abs(gr_start[,1]) > 999999999,] <- 0
-  ok_c <- !((gr_start[,2] - gr_start[,1] <= 50000) & lengths(gr) > 1) # To filter contig that map to close regions (unlikely to be transduction event)
-  ok <- ok_a & ok_b & ok_c
-  gr <- gr[ok]
 
-  # Filtering groups that are clearly not insertion
-  non_orphan_grp <- unique(elementMetadata(gr)$grp[duplicated(elementMetadata(gr)$grp)])
-  not_only_polyA <- any(start(gr[seqnames(gr) == "Hot_L1_polyA"]) < 6000)
-  not_only_polyA <- elementMetadata(gr)$grp[not_only_polyA]
+  # Filtering related read cluster group that has not insert infromation
+  insert_gr <- gr[grepl("Hot_L1_polyA", seqnames(gr))]
+  has_insert <- any(start(insert_gr) < 6000)
+  group_has_insert <- any(LogicalList(split(has_insert, relationship_grp)))
+  is_usable_grp <- sort(unique(x$group))[group_has_insert]
+  is_from_usable_grp <- relationship_grp%in%is_usable_grp
+  # good_insert <- any(width(insert_gr) > 100) # Insert length is longer than 100 nt
 
-  ok <- (elementMetadata(gr)$grp%in%non_orphan_grp) & (elementMetadata(gr)$grp%in%not_only_polyA)
-  gr <- gr[ok]
+
+  # Extracting regions that are close together (does not indicate transduction event)
+  anchor_gr <- gr[!grepl("Hot_L1_polyA", seqnames(gr))]
+  gr_range <- range(start(anchor_gr))
+  gr_range[,1][abs(gr_range[,1]) > 999999999] <- 0
+  gr_range[,2][abs(gr_range[,2]) > 999999999] <- 0
+  range_ok <- (gr_range[,2] - gr_range[,1]) > 50000
+  chr_ok <- lengths(unique(seqnames(anchor_gr))) > 1
+
+  # Getting regions has more than just genomic sequences
+  tmp_anno <- CharacterList(strsplit(flat_anno, " "))
+  tmp_anno <- tmp_anno[!grepl(":|NNNNN", tmp_anno)]
+  has_seq <- sum(nchar(tmp_anno)) > 3
+  orphan_ok <- lengths(anchor_gr) >= 1 & (has_seq | lengths(insert_gr) > 0) # Only contains genomic regions but with sequences (could possibly poly-A)
+  region_ok <- lengths(anchor_gr) > 1 # Contain more than one 1 genomic regions
+
+  # Combining all filters
+  # is_informative <- not_insert_only & (orphan_ok | region_ok | range_ok | chr_ok | good_insert) & is_from_usable_grp
+  is_informative <- not_insert_only & (orphan_ok | (region_ok & range_ok) | chr_ok) & is_from_usable_grp
+  informative_anno <- split(flat_anno[is_informative], grp[is_informative])
+  elementMetadata(x)$informative_anno <- informative_anno
+  x
 }
