@@ -12,6 +12,8 @@ annotate_constructed_reads <- function(x, partner_is_anchor = TRUE, BPPARAM = Mu
   names(out) <- seq_along(out)
   return(out)
 }
+##################################
+##################################
 
 #' @export
 multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_replace = NULL, to_replace_element = NULL){
