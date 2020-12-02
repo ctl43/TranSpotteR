@@ -1,4 +1,25 @@
 #' @export
+#' @importFrom BiocParallel MulticoreParam bplapply
+#' @importFrom IRanges CharacterList
+#' @importFrom BiocGenerics width unlist
+#' @importFrom S4Vectors List
+
+line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
+  usable_clusters <- clusters[elementMetadata(clusters)$is_usable]
+  anno <- usable_clusters$read_annotation
+  grp <- rep(usable_clusters$group, lengths(anno))
+  anno <- unlist(anno, use.names = FALSE)
+  anno <- unname(anno)
+  anno <- CharacterList(split(anno, grp))
+  for_parallel <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
+  out <- bplapply(for_parallel, function(x)lapply(x, .internal_inference), BPPARAM = BPPARAM)
+  out <- List(unlist(out, recursive = FALSE, use.names = FALSE))
+  tmp <- GRangesList(lapply(out, unlist))
+  elementMetadata(out)$is_full <- max(width(range(tmp[seqnames(tmp) == "Hot_L1_polyA"]))) > 5500
+  out
+}
+
+#' @export
 #' @importFrom BiocGenerics start end
 #' @importFrom GenomicRanges GRangesList
 #' @importFrom IRanges subsetByOverlaps CharacterList
@@ -6,8 +27,9 @@
 #' @importFrom Biostrings DNAStringSetList letterFrequency complement
 #' @importFrom GenomeInfoDb seqnames
 
-insert_inference <- function(x){
-  x <- convert_character2gr(x)
+.internal_inference <- function(y, search_range = 1000){
+  x <- convert_character2gr(y)
+  elementMetadata(x)$read_annotation <- y
   elementMetadata(x)$id <- seq_along(x)
 
   # Finding the Granges having insertion
@@ -75,12 +97,12 @@ insert_inference <- function(x){
 
   # Selecting genomic ranges for searching next GRanges
   starter <- starter_gr[seqnames(starter_gr) != "Hot_L1_polyA"][[1]]
-  next_gr <- subsetByOverlaps(x[!is_min_l1], starter + 1000)#, ignore.strand=TRUE)
+  next_gr <- subsetByOverlaps(x[!is_min_l1], starter + search_range)#, ignore.strand=TRUE)
 
   # Checking whether they are in the right orientation
   .determine_direction <- function(q, z){
     tot <- seq_along(q)
-    ol <- findOverlaps(q, z + 1000, ignore.strand = TRUE)@from
+    ol <- findOverlaps(q, z + search_range, ignore.strand = TRUE)@from
     if(length(ol) > 1){
       return("undetermined")
     }
@@ -112,9 +134,9 @@ insert_inference <- function(x){
   has_polyA_seq <- unlist(lapply(included_seq, function(x){
     j <- Biostrings::letterFrequency(x, letters = c("A", "T", "G", 'C'))
     tot <- rowSums(j)
-    a_prop <- j[,1] / tot
-    t_prop <- j[,2] / tot
-    any(a_prop>0.8|t_prop > 0.8)
+    a_prop <- j[, 1] / tot
+    t_prop <- j[, 2] / tot
+    any(a_prop > 0.8|t_prop > 0.8)
     }))
   has_polyA <- has_polyA_seq|any(end(sensible[seqnames(sensible)=="Hot_L1_polyA"]) > 6000)
   sensible <- sensible[has_polyA]
@@ -172,12 +194,12 @@ insert_inference <- function(x){
   last_time <- rep(FALSE, length(x))
   while(sum(is_thing4search) > 0){
     thing4search <- x[is_thing4search]
-    possible_middle <- subsetByOverlaps(thing4search, next_target+1000, ignore.strand = TRUE)
+    possible_middle <- subsetByOverlaps(thing4search, next_target + search_range, ignore.strand = TRUE)
     if(length(possible_middle) == 0){
       break
     }
 
-    ol_region <- GRangesList(lapply(possible_middle, function(x)subsetByOverlaps(x, next_target + 1000, ignore.strand = TRUE)))
+    ol_region <- GRangesList(lapply(possible_middle, function(x)subsetByOverlaps(x, next_target + search_range, ignore.strand = TRUE)))
     strands <- lapply(strand(ol_region), function(x)unique(as.character(x)))
     ol_region <- ol_region[lengths(strands) == 1]
     possible_middle <- possible_middle[lengths(strands) == 1]
@@ -220,7 +242,7 @@ insert_inference <- function(x){
       middle_regions <- c(middle, middle_regions)
     }
 
-    next_target <- subsetByOverlaps(middle[[1]], next_target+1000, invert = TRUE)
+    next_target <- subsetByOverlaps(middle[[1]], next_target + search_range, invert = TRUE)
     next_target <- next_target[seqnames(next_target) != "Hot_L1_polyA"]
     if(length(next_target)==0){
       break
