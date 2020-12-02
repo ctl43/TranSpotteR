@@ -7,6 +7,7 @@
 #' @importFrom GenomeInfoDb seqnames
 
 insert_inference <- function(x){
+  x <- convert_character2gr(x)
   elementMetadata(x)$id <- seq_along(x)
 
   # Finding the Granges having insertion
@@ -14,14 +15,20 @@ insert_inference <- function(x){
   ins_gr <- x[is_insert]
   has_insert <- any(is_insert)
 
+  if(sum(has_insert) == 0){
+    message("No insert regions is found")
+    return(GRangesList())
+  }
+
   # Choosing the one with the earliest start site
-  l1_start <- min(start(x[is_insert]))
+  insert_gr <- x[is_insert]
+  l1_start <- min(start(insert_gr))
   min_l1 <- min(l1_start)
   is_min_l1 <- l1_start == min_l1
 
   # If no anchor is found
   if(sum(is_min_l1) == 0){
-    message("no anchor regions is found")
+    message("No anchor regions is found")
     return(GRangesList())
   }
   # If the anchor GRanges is only polyA
@@ -36,8 +43,9 @@ insert_inference <- function(x){
   non_insert <- lapply(non_insert, as.logical)
 
   if(length(which(is_min_l1)) > 1){
-    message("Too many anchors for searching")
-    return(GRangesList())
+    is_min_l1 <- seq_along(x)%in%which(is_min_l1)[which.max(max(width(insert_gr[is_min_l1])))]
+    # message("Too many anchors for searching")
+    # return(GRangesList())
   }
   right_match <- sapply(non_insert, tail, n = 1)
   left_match <- sapply(non_insert, head, n = 1)
@@ -108,7 +116,7 @@ insert_inference <- function(x){
     t_prop <- j[,2] / tot
     any(a_prop>0.8|t_prop > 0.8)
     }))
-  has_polyA <- has_polyA_seq|any(end(sensible[seqnames(sensible)=="Hot_L1_polyA"])>6000)
+  has_polyA <- has_polyA_seq|any(end(sensible[seqnames(sensible)=="Hot_L1_polyA"]) > 6000)
   sensible <- sensible[has_polyA]
 
   if(!any(has_polyA)){
@@ -233,6 +241,3 @@ insert_inference <- function(x){
   }
   return(result)
 }
-
-
-
