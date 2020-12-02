@@ -1,118 +1,4 @@
 #' @export
-
-.get_clip_length <- function(cigars, start = TRUE) {
-  cliplen <- integer(length(cigars))
-  for (op in c("H", "S")) { # hard clips before soft clips.
-    if (start) {
-      finder <- paste0("^[0-9]+", op)
-      keeper <- paste0("^([0-9]+)", op, ".*")
-    } else {
-      finder <- paste0("[0-9]+", op, "$")
-      keeper <- paste0(".*[^0-9]([0-9]+)", op, "$")
-    }
-    present <- grepl(finder, cigars)
-    cliplen[present] <- cliplen[present] + as.integer(sub(keeper, "\\1", cigars[present]))
-    cigars <- sub(finder, "", cigars)
-  }
-  return(cliplen)
-}
-
-#' @export
-#' @importFrom IRanges IntegerList
-.get_middle_unmapped_pos <- function(cigars){
-  end <- start <- rep(IntegerList(0), length(cigars))
-  present <- grepl("([0-9]+[A-Z][0-9]+S[0-9]+[A-Z])", cigars)
-
-  .internal <- function(cigar){
-    storage <- c()
-    current <- sub("[0-9]+[A-Z]$", "",cigar)
-    last_one <- substr(current, nchar(current), nchar(current))
-    continue <- grepl("^([0-9]+[A-Z][0-9]+[A-Z])", current)
-    while(continue){
-      if(last_one=="S"){
-        storage <- c(storage, current)
-      }
-      current <- sub("[0-9]+[A-Z]$", "", current)
-      last_one <- substr(current, nchar(current), nchar(current))
-      continue <- grepl("^([0-9]+[A-Z][0-9]+[A-Z])", current)
-    }
-    out <- rev(IntegerList(strsplit(storage, "[A-Z]")))
-    out <- t(sapply(cumsum(out), tail, n=2))
-    list(start=out[,1] + 1, end = out[,2])
-  }
-  result <- lapply(cigars[present], .internal)
-  start[present] <- IntegerList(lapply(result, "[[", i="start"))
-  end[present] <- IntegerList(lapply(result, "[[", i="end"))
-  start <- lapply(start, function(x){names(x) <- seq_along(x);x})
-  end <- lapply(end, function(x){names(x) <- seq_along(x);x})
-  names(end) <- names(start) <- names(cigars)
-  list(start=start, end=end)
-}
-
-#' @export
-#' @importFrom IRanges IntegerList
-#' @importFrom GenomicAlignments explodeCigarOpLengths
-
-.get_M_pos <- function(cigars){
-  M_end <- M_start <- integer(length(cigars))
-  mapped <- cigars!="*"
-  l_clipped_len <- .get_clip_length(cigars[mapped])
-  r_clipped_len <- .get_clip_length(cigars[mapped], start = FALSE)
-  len <- sum(IntegerList(explodeCigarOpLengths(cigars[mapped])))
-  M_start[mapped] <- l_clipped_len + 1
-  M_end[mapped] <- len-r_clipped_len
-  list(start=M_start, end=M_end)
-}
-
-#' @export
-#' @importFrom S4Vectors runValue runLength aggregate
-#' @importFrom GenomicAlignments cigarToRleList
-
-unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query=FALSE){
-  out <- rep("", length(cigar))
-  is_unmapped <- cigar == "*"
-  if(all(is_unmapped)){
-    return(cigar)
-  }
-  cigar <- cigar[!is_unmapped]
-  flag <- flag[!is_unmapped]
-
-  if(!is.null(flag)){
-    from <- ifelse(bitwAnd(flag, 0x10), "-", "+")
-  }
-
-  cigar <- cigarToRleList(cigar)
-  rv <- runValue(cigar)
-  rl <- runLength(cigar)
-  if(along_query){
-    rl <- rl[rv!="D"]
-    rv <- rv[rv!="D"]
-  }
-  is_reversed <- from!=to
-  rv[is_reversed] <- lapply(rv[is_reversed], rev)
-  rl[is_reversed] <- lapply(rl[is_reversed], rev)
-  grp <- rep(seq_along(rv), lengths(rv))
-  converted <- aggregate(paste0(unlist(rl), unlist(rv)), list(grp), paste, collapse="")[,2]
-  out[!is_unmapped] <- converted
-  out[is_unmapped] <- "*"
-  out
-}
-
-#' @importFrom BiocGenerics cbind do.call
-.combined_rle <- function(x){
-  if(length(x) == 1){
-    return(x[[1]])
-  }
-  x <- do.call(cbind, x)
-  result <- x[, 2]
-  for(i in 3 : ncol(x)){
-    result[result == "S"] <- x[, i][result == "S"]
-  }
-  out <- Rle(result, x[, 1])
-  out
-}
-
-#' @export
 #' @importFrom S4Vectors split
 #' @importFrom IRanges CharacterList IntegerList
 #' @importFrom GenomicAlignments cigarToRleList explodeCigarOpLengths
@@ -160,8 +46,8 @@ get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE)
   unified_cigar <- unify_cigar_strand(cigar, from=strand, to="+", along_query = TRUE)
 
   # Get clipped length
-  left_len <- .get_clip_length(unified_cigar, start=TRUE)
-  right_len <- .get_clip_length(unified_cigar, start=FALSE)
+  left_len <- .get_clip_length(unified_cigar, start = TRUE)
+  right_len <- .get_clip_length(unified_cigar, start = FALSE)
   left_len <- min(IntegerList(split(left_len, group)))
   right_len <- min(IntegerList(split(right_len, group)))
   seq <- unlist(unique(DNAStringSetList(split(seq, group))))
@@ -194,6 +80,104 @@ get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE)
   result
 }
 
+
+#' @export
+#' @importFrom S4Vectors runValue runLength aggregate
+#' @importFrom GenomicAlignments cigarToRleList
+
+unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query = FALSE){
+  out <- rep("", length(cigar))
+  is_unmapped <- cigar == "*"
+  if(all(is_unmapped)){
+    return(cigar)
+  }
+  cigar <- cigar[!is_unmapped]
+  flag <- flag[!is_unmapped]
+
+  if(!is.null(flag)){
+    from <- ifelse(bitwAnd(flag, 0x10), "-", "+")
+  }
+
+  cigar <- cigarToRleList(cigar)
+  rv <- runValue(cigar)
+  rl <- runLength(cigar)
+  if(along_query){
+    rl <- rl[rv!="D"]
+    rv <- rv[rv!="D"]
+  }
+  is_reversed <- from!=to
+  rv[is_reversed] <- lapply(rv[is_reversed], rev)
+  rl[is_reversed] <- lapply(rl[is_reversed], rev)
+  grp <- rep(seq_along(rv), lengths(rv))
+  converted <- aggregate(paste0(unlist(rl), unlist(rv)), list(grp), paste, collapse="")[,2]
+  out[!is_unmapped] <- converted
+  out[is_unmapped] <- "*"
+  out
+}
+
+#' @export
+.get_clip_length <- function(cigars, start = TRUE) {
+  cliplen <- integer(length(cigars))
+  for (op in c("H", "S")) { # hard clips before soft clips.
+    if (start) {
+      finder <- paste0("^[0-9]+", op)
+      keeper <- paste0("^([0-9]+)", op, ".*")
+    } else {
+      finder <- paste0("[0-9]+", op, "$")
+      keeper <- paste0(".*[^0-9]([0-9]+)", op, "$")
+    }
+    present <- grepl(finder, cigars)
+    cliplen[present] <- cliplen[present] + as.integer(sub(keeper, "\\1", cigars[present]))
+    cigars <- sub(finder, "", cigars)
+  }
+  return(cliplen)
+}
+
+#' @export
+#' @importFrom IRanges IntegerList
+.get_middle_unmapped_pos <- function(cigars){
+  end <- start <- rep(IntegerList(0), length(cigars))
+  present <- grepl("([0-9]+[A-Z][0-9]+S[0-9]+[A-Z])", cigars)
+
+  .internal <- function(cigar){
+    storage <- c()
+    current <- sub("[0-9]+[A-Z]$", "", cigar)
+    last_one <- substr(current, nchar(current), nchar(current))
+    continue <- grepl("^([0-9]+[A-Z][0-9]+[A-Z])", current)
+    while(continue){
+      if(last_one == "S"){
+        storage <- c(storage, current)
+      }
+      current <- sub("[0-9]+[A-Z]$", "", current)
+      last_one <- substr(current, nchar(current), nchar(current))
+      continue <- grepl("^([0-9]+[A-Z][0-9]+[A-Z])", current)
+    }
+    out <- rev(IntegerList(strsplit(storage, "[A-Z]")))
+    out <- t(sapply(cumsum(out), tail, n = 2))
+    list(start = out[, 1] + 1, end = out[,2])
+  }
+  result <- lapply(cigars[present], .internal)
+  start[present] <- IntegerList(lapply(result, "[[", i = "start"))
+  end[present] <- IntegerList(lapply(result, "[[", i = "end"))
+  start <- lapply(start, function(x){ names(x) <- seq_along(x);x })
+  end <- lapply(end, function(x){ names(x) <- seq_along(x);x })
+  names(end) <- names(start) <- names(cigars)
+  list(start = start, end = end)
+}
+
+#' @importFrom BiocGenerics cbind do.call
+.combined_rle <- function(x){
+  if(length(x) == 1){
+    return(x[[1]])
+  }
+  x <- do.call(cbind, x)
+  result <- x[, 2]
+  for(i in 3 : ncol(x)){
+    result[result == "S"] <- x[, i][result == "S"]
+  }
+  out <- Rle(result, x[, 1])
+  out
+}
 
 #' @export
 #' @importFrom S4Vectors runValue runLength
