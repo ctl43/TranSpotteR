@@ -8,15 +8,17 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   usable_clusters <- clusters[elementMetadata(clusters)$is_usable]
   anno <- usable_clusters$read_annotation
   grp <- rep(usable_clusters$group, lengths(anno))
+  n_reads <- unlist(elementMetadata(anno)$n_reads)
   anno <- unlist(anno, use.names = FALSE)
   anno <- unname(anno)
   anno <- CharacterList(split(anno, grp))
+  elementMetadata(anno)$n_reads <- IntegerList(split(n_reads, grp))
   for_parallel <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
-  out <- bplapply(for_parallel, function(x)lapply(x, .internal_inference), BPPARAM = BPPARAM)
+  out <- bplapply(for_parallel, function(x)mapply(.internal_inference, y = x, n_reads = elementMetadata(x)[[1]]), BPPARAM = BPPARAM) # Need a better way to store the number of consisted reads
   out <- List(unlist(out, recursive = FALSE, use.names = FALSE))
   tmp <- GRangesList(lapply(out, unlist))
   elementMetadata(out)$is_full <- max(width(range(tmp[seqnames(tmp) == "Hot_L1_polyA"]))) > 5500
-  out
+  out[lengths(out) > 0]
 }
 
 #' @export
@@ -27,8 +29,11 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 #' @importFrom Biostrings DNAStringSetList letterFrequency complement
 #' @importFrom GenomeInfoDb seqnames
 
-.internal_inference <- function(y, search_range = 1000){
+.internal_inference <- function(y, n_reads = NULL, search_range = 1000){
   x <- convert_character2gr(y)
+  if(!is.null(n_reads)){
+    elementMetadata(x)$n_reads <- n_reads
+  }
   elementMetadata(x)$read_annotation <- y
   elementMetadata(x)$id <- seq_along(x)
 
@@ -140,7 +145,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     }))
   has_polyA <- has_polyA_seq|any(end(sensible[seqnames(sensible)=="Hot_L1_polyA"]) > 6000)
   sensible <- sensible[has_polyA]
-
+  elementMetadata(sensible)$has_polyA <- has_polyA
   if(!any(has_polyA)){
     message("no sensible end")
     return(x[is_min_l1][1])
@@ -214,18 +219,19 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
       original <- CharacterList(strand(x))
       strand(x)[original=="+"] <- "-"
       strand(x)[original=="-"] <- "+"
-      elementMetadata(x)$anno <- revElements(elementMetadata(x)$anno)
-      elementMetadata(x)$anno[grepl(":", elementMetadata(x)$anno)] <- CharacterList(lapply(x, as.character))
-      y <- elementMetadata(x)$anno[!grepl(":", elementMetadata(x)$anno)]
+      anno <- CharacterList(strsplit(elementMetadata(x)$read_annotation, " "))
+      anno <- revElements(anno)
+      anno[grepl(":", anno)] <- CharacterList(lapply(x, as.character))
+      y <- anno[!grepl(":", anno)]
       complemented <- CharacterList(lapply(y, function(x)as.character(complement(DNAStringSet(x)))))
-      elementMetadata(x)$anno[!grepl(":", elementMetadata(x)$anno)] <- complemented
+      anno[!grepl(":", anno)] <- complemented
+      elementMetadata(x)$read_annotation <- sapply(anno, paste, collapse = " ")
       elementMetadata(x)$rc <- TRUE
       x
     }
 
     strand_not_match <- as.character(strand(ol_region)) != as.character(strand(next_target))
     possible_middle[strand_not_match] <- .rc(possible_middle[strand_not_match])
-
     middle_direction <- sapply(possible_middle, .determine_direction, z = next_target)
     sensible_middle <- possible_middle[middle_direction!=start_direction&middle_direction != "undetermined"]
 
