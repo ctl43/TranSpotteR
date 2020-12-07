@@ -84,7 +84,7 @@ multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_rep
   # Combining annotation
   cluster_anno <- split(cluster_anno, factor(cluster_grp, levels = seq_along(clusters)))
   partner_anno <- split(partner_anno, factor(partner_grp, levels = seq_along(clusters)))
-  long_anno <- split(long_anno, factor(long_grp, levels = seq_along(clusters)))
+  long_anno <- CharacterList(split(long_anno, factor(long_grp, levels = seq_along(clusters))))
   both_mapped <- lengths(cluster_anno) > 0 & lengths(partner_anno) > 0
 
   if(strand=="+"){ # Creating all possible combination of read structures
@@ -92,16 +92,26 @@ multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_rep
                                           x = cluster_anno,
                                           y = partner_anno,
                                           SIMPLIFY = FALSE))
+    combined_n_reads <- IntegerList(mapply(function(x, y){rep(x, each = length(y)) + y},
+                                           x = elementMetadata(clusters$cluster_contigs)$n_reads,
+                                           y = elementMetadata(clusters$partner_contigs)$n_reads,
+                                           SIMPLIFY = FALSE))
   }else{
     combined_anno <- CharacterList(mapply(function(x, y){paste0(rep(x, each = length(y)), " NNNNN ",y)},
                                           x = partner_anno,
                                           y = cluster_anno,
                                           SIMPLIFY = FALSE))
+    combined_n_reads <- IntegerList(mapply(function(x, y){rep(x, each = length(y)) + y},
+                                                                 x = elementMetadata(clusters$partner_contigs)$n_reads,
+                                                                 y = elementMetadata(clusters$cluster_contigs)$n_reads,
+                                                                 SIMPLIFY = FALSE))
   }
-
+  n_reads <- elementMetadata(clusters$long_contigs)$n_reads
+  n_reads[lengths(n_reads) == 0] <- combined_n_reads[lengths(n_reads) == 0]
   combined_anno[any(combined_anno == " NNNNN ")] <- CharacterList(character(0))
   combined_anno[!both_mapped] <- CharacterList(character(0))
   combined_storage <- CharacterList(mapply(c, long_anno, combined_anno, SIMPLIFY = FALSE))
+  elementMetadata(combined_storage)$n_reads <- n_reads
   clusters$read_annotation <- combined_storage
   clusters
 }

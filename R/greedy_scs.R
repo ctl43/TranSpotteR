@@ -1,6 +1,6 @@
 #' @export
 #' @importFrom data.table data.table
-#' @importFrom Biostrings consensusMatrix
+#' @importFrom Biostrings consensusMatrix DNAStringSet
 #' @importFrom uuid UUIDgenerate
 
 # Finding the overlapping percentage and overlapping length between pair
@@ -48,7 +48,7 @@ overlap_reads <- function(vec, min_pid = 85, min_len = 10){
 }
 
 #' @export
-greedy_scs <- function(vec, msa_result = FALSE, return_no_assembly = FALSE, add_id = TRUE){
+greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, return_no_assembly = FALSE, add_id = TRUE){
   # Dealing with NULL vector
   if(is.null(vec)){
     consensus <- NULL
@@ -60,8 +60,13 @@ greedy_scs <- function(vec, msa_result = FALSE, return_no_assembly = FALSE, add_
     }
   }
 
-  names(vec) <- seq_along(vec)
+  if(is.null(n_reads)){
+    n_reads <- rep(1, length(vec))
+  }
+
+  names(n_reads) <- names(vec) <- seq_along(vec)
   original_vec <- vec
+
   # This can be vastly improved by not calculating the overlaps that have been calculated before
   # Will be implemented into C++ in the future
 
@@ -78,6 +83,7 @@ greedy_scs <- function(vec, msa_result = FALSE, return_no_assembly = FALSE, add_
       break
     }
   }
+
   # Picking out those read that did not assemble
   ass_id <- names(vec)
   solo_id <- ass_id[!grepl("_", ass_id)]
@@ -88,22 +94,27 @@ greedy_scs <- function(vec, msa_result = FALSE, return_no_assembly = FALSE, add_
   consensus <- sapply(msa_out, .process_msa)
   names(consensus) <- non_solo_id
   names(msa_out) <- non_solo_id
-
   consensus <- unlist(consensus)
-
   if(add_id & length(consensus) > 0){
     names(consensus) <- UUIDgenerate(n = length(consensus))
   }
 
+  # Computing the number of reads consisting the consensus sequence
+  non_solo_n_reads <- unlist(lapply(member_idx, function(x)sum(n_reads[x])))
+
   if(return_no_assembly){
-    consensus <- c(consensus, vec[solo_id])
-    msa_out <- c(msa_out, split(vec[solo_id], solo_id))
+    solo <- CharacterList(vec[solo_id])
+    n_reads <- c(non_solo_n_reads, n_reads[solo_id])
+    consensus <- c(consensus, solo)
+    msa_out <- c(msa_out, split(solo, solo_id))
+  }else{
+    n_reads <- non_solo_n_reads
   }
 
   if(msa_result){
     return(list(consensus = consensus, msa = msa_out))
   }else{
-    return(consensus)
+    return(list(consensus, n_reads))
   }
 }
 

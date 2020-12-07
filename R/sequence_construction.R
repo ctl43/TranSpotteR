@@ -8,11 +8,13 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   # Down sample to an amount that can be handled properly
   if(prevent_overload){
     is_large <- lengths(x$members) >= max_n
-    large <- x[is_large]
-    selected <- lapply(large$members, function(x){set.seed(20190721); sample(seq_along(x), max_n)})
-    large$members <- mapply(function(x, y)x[y], x = large$members, y = selected)
-    large$partners <- mapply(function(x, y)x[y], x = large$partners, y = selected)
-    x[is_large] <- large
+    if(sum(is_large) != 0){
+      large <- x[is_large]
+      selected <- lapply(large$members, function(x){set.seed(20190721); sample(seq_along(x), max_n)})
+      large$members <- mapply(function(x, y)x[y], x = large$members, y = selected)
+      large$partners <- mapply(function(x, y)x[y], x = large$partners, y = selected)
+      x[is_large] <- large
+    }
   }
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
@@ -52,33 +54,48 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   partner_contigs <- unlist(partner_contigs, recursive = FALSE, use.names = FALSE)
 
   # Assembling cluster sequences
-  cluster_seq <- lapply(x$members, function(x)x$SEQUENCE)
+  # cluster_seq <- lapply(x$members, function(x)elementMetadata(x)$SEQUENCE)
+  cluster_seq <- split(unlist(x$members)$SEQUENCE, rep(seq_along(x), lengths(x$members)))
   cluster_grp <- as.integer(cut(seq_along(cluster_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
   cluster_seq <- split(cluster_seq, cluster_grp)
   # cluster_contigs <- bplapply(cluster_seq, greedy_scs, BPPARAM = BPPARAM)
   cluster_contigs <- bplapply(cluster_seq, function(x)lapply(x, greedy_scs), BPPARAM = BPPARAM)
   cluster_contigs <- unlist(cluster_contigs, recursive = FALSE, use.names = FALSE)
 
-  # Assembling both
+  # Assembling both clustered reads and their partner reads
+  merged_contigs <- rep(CharacterList(character(0L)), length(partner_contigs))
   has_both <- lengths(partner_contigs) > 0 & lengths(cluster_contigs) > 0
-  merged_contigs <- rep(list(c()), length(partner_contigs))
-  merged_seq <- mapply(function(x,y)c(x,y),x = partner_contigs[has_both], y = cluster_contigs[has_both], SIMPLIFY = FALSE)
-  merged_grp <- as.integer(cut(seq_along(merged_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
-  merged_seq <- split(merged_seq, merged_grp)
-  # merged_contigs[has_both] <- bplapply(merged_seq, greedy_scs, BPPARAM = BPPARAM)
-  tmp <- bplapply(merged_seq, function(x)lapply(x, greedy_scs), BPPARAM = BPPARAM)
-  merged_contigs[has_both] <- unlist(tmp, recursive = FALSE, use.names = FALSE)
-
+  if(sum(has_both) > 0){
+    merged_seq <- mapply(function(x, y)list(seq = c(x[[1]], y[[1]]), n_reads = c(x[[2]], y[[2]])),
+                         x = partner_contigs[has_both],
+                         y = cluster_contigs[has_both],
+                         SIMPLIFY = FALSE)
+    merged_grp <- as.integer(cut(seq_along(merged_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
+    merged_seq <- split(merged_seq, merged_grp)
+    # merged_contigs[has_both] <- bplapply(merged_seq, greedy_scs, BPPARAM = BPPARAM)
+    tmp <- bplapply(merged_seq, function(x)lapply(x, function(x)greedy_scs(x[[1]], x[[2]])), BPPARAM = BPPARAM)
+    tmp <- unlist(tmp, recursive = FALSE, use.names = FALSE)
+    tmp_merged_n_reads <- IntegerList(lapply(tmp, "[[", i = 2))
+    merged_contigs[has_both] <- CharacterList(lapply(tmp, "[[", i = 1))
+    elementMetadata(merged_contigs)$n_reads <- IntegerList(integer(0L))
+    elementMetadata(merged_contigs)$n_reads[has_both] <- tmp_merged_n_reads
+  }
 
   # Storing data
-  partner_contigs <- DNAStringSetList(lapply(partner_contigs, DNAStringSet)) # to preserve the sequence names
-  cluster_contigs <- DNAStringSetList(lapply(cluster_contigs, DNAStringSet))
-  merged_contigs <- DNAStringSetList(lapply(merged_contigs, DNAStringSet))
+  ## Tidying up the number reads
+  partner_n_reads <- IntegerList(lapply(partner_contigs, "[[", i = 2))
+  cluster_n_reads <- IntegerList(lapply(cluster_contigs, "[[", i = 2))
+  partner_contigs <- CharacterList(lapply(partner_contigs, "[[", i = 1))
+  cluster_contigs <- CharacterList(lapply(cluster_contigs, "[[", i = 1))
+  elementMetadata(partner_contigs)$n_reads <- partner_n_reads
+  elementMetadata(cluster_contigs)$n_reads <- cluster_n_reads
+
   has_long <- lengths(merged_contigs) > 0
+  x$has_long <- has_long
   x$long_contigs <- merged_contigs
-  partner_contigs[has_long] <- DNAStringSetList(DNAStringSet())
+  partner_contigs[has_long] <- CharacterList(character(0L))
   x$partner_contigs <- partner_contigs
-  cluster_contigs[has_long] <- DNAStringSetList(DNAStringSet())
+  cluster_contigs[has_long] <- CharacterList(character(0L))
   x$cluster_contigs <- cluster_contigs
   x
 }
