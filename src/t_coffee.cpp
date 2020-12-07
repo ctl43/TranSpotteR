@@ -10,16 +10,16 @@ using namespace seqan;
 
 // [[Rcpp::export]]
 
-Rcpp::StringVector t_coffee(std::vector<std::string> strings)
+Rcpp::StringVector t_coffee(std::vector<std::string> strings, int match_score = 1, int mismatch_score = -1, int gap_ext_score = 0, int gap_open_score = -10)
 {
   int n = strings.size();
   Align<DnaString> align;
   resize(rows(align), n);
-  
+
   for (int i = 0; i < n; ++i){
     assignSource(row(align, i), strings[i]);
   }
-  globalMsaAlignment(align, SimpleScore(2, -2, 0, -5));
+  globalMsaAlignment(align, SimpleScore(match_score, mismatch_score, gap_ext_score, gap_open_score));
   int aln_len = length(row(align, 0));
   Rcpp::StringVector out(n);
   for (unsigned i = 0; i < n; ++i){
