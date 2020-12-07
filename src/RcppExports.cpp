@@ -29,13 +29,17 @@ BEGIN_RCPP
 END_RCPP
 }
 // t_coffee
-Rcpp::StringVector t_coffee(std::vector<std::string> strings);
-RcppExport SEXP _TranSpotteR_t_coffee(SEXP stringsSEXP) {
+Rcpp::StringVector t_coffee(std::vector<std::string> strings, int match_score, int mismatch_score, int gap_ext_score, int gap_open_score);
+RcppExport SEXP _TranSpotteR_t_coffee(SEXP stringsSEXP, SEXP match_scoreSEXP, SEXP mismatch_scoreSEXP, SEXP gap_ext_scoreSEXP, SEXP gap_open_scoreSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< std::vector<std::string> >::type strings(stringsSEXP);
-    rcpp_result_gen = Rcpp::wrap(t_coffee(strings));
+    Rcpp::traits::input_parameter< int >::type match_score(match_scoreSEXP);
+    Rcpp::traits::input_parameter< int >::type mismatch_score(mismatch_scoreSEXP);
+    Rcpp::traits::input_parameter< int >::type gap_ext_score(gap_ext_scoreSEXP);
+    Rcpp::traits::input_parameter< int >::type gap_open_score(gap_open_scoreSEXP);
+    rcpp_result_gen = Rcpp::wrap(t_coffee(strings, match_score, mismatch_score, gap_ext_score, gap_open_score));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -43,7 +47,7 @@ END_RCPP
 static const R_CallMethodDef CallEntries[] = {
     {"_TranSpotteR_overlapper", (DL_FUNC) &_TranSpotteR_overlapper, 2},
     {"_TranSpotteR_replcae_space", (DL_FUNC) &_TranSpotteR_replcae_space, 1},
-    {"_TranSpotteR_t_coffee", (DL_FUNC) &_TranSpotteR_t_coffee, 1},
+    {"_TranSpotteR_t_coffee", (DL_FUNC) &_TranSpotteR_t_coffee, 5},
     {NULL, NULL, 0}
 };
 
