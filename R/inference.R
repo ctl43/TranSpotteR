@@ -6,6 +6,9 @@
 
 line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   usable_clusters <- clusters[elementMetadata(clusters)$is_usable]
+  if(length(usable_clusters) == 0){
+    return(NULL)
+  }
   anno <- usable_clusters$read_annotation
   grp <- rep(usable_clusters$group, lengths(anno))
   n_reads <- unlist(elementMetadata(anno)$n_reads)
@@ -14,12 +17,22 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   anno <- CharacterList(split(anno, grp))
   elementMetadata(anno)$n_reads <- IntegerList(split(n_reads, grp))
   for_parallel <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
-  out <- bplapply(for_parallel, function(x)mapply(.internal_inference, y = x, n_reads = elementMetadata(x)[[1]]), BPPARAM = BPPARAM) # Need a better way to store the number of consisted reads
-  out <- List(unlist(out, recursive = FALSE, use.names = FALSE))
-  tmp <- GRangesList(lapply(out, unlist))
-  elementMetadata(out)$is_full <- max(width(range(tmp[seqnames(tmp) == "Hot_L1_polyA"]))) > 5500
-  out[lengths(out) > 0]
+  out <- bplapply(for_parallel, function(x){
+    mapply(.internal_inference, y = x,
+           n_reads = elementMetadata(x)[[1]],
+           SIMPLIFY = FALSE)
+    },
+    BPPARAM = BPPARAM) # Need a better way to store the number of consisted reads
+  out <- unlist(out, recursive = FALSE, use.names = FALSE)
+  gr_out <- lapply(out, "[[", i = 1)
+  df_out <- lapply(out, "[[", i = 2)
+  df_out <- do.call(rbind, df_out)
+  gr_out <- List(gr_out)
+  tmp <- GRangesList(lapply(gr_out, unlist))
+  elementMetadata(gr_out)$is_full <- max(width(range(tmp[seqnames(tmp) == "Hot_L1_polyA"]))) > 5500
+  list(gr_out[lengths(gr_out) > 0], df_out[, lengths(gr_out) > 0])
 }
+
 
 #' @export
 #' @importFrom BiocGenerics start end
@@ -30,10 +43,32 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 #' @importFrom GenomeInfoDb seqnames
 
 .internal_inference <- function(y, n_reads = NULL, search_range = 1000){
+  # Initialise a list to collect information
+  storage <- list("5p_chr" = NA,
+                  "5p_transducted_genomic_region" = NA,
+                  "5p_genomic_regions_start" = NA,
+                  "5p_genomic_regions_end" = NA,
+                  "5p_genomic_break" = NA,
+                  "5p_insert_start" = NA,
+                  "5p_insert_end" = NA,
+                  "5p_insert_Orientation" = NA,
+                  "5p_insert_break" = NA,
+                  "3p_chr" = NA,
+                  "3p_genomic_regions_start" = NA,
+                  "3p_genomic_regions_end" = NA,
+                  "3p_genomic_break" = NA,
+                  "3p_insert_start" = NA,
+                  "3p_insert_end" = NA,
+                  "3p_insert_break" = NA,
+                  "3p_insert_Orientation" = NA,
+                  "3p_transducted_genomic_region" = NA,
+                  "has polyA" = NA)
+
   x <- convert_character2gr(y)
   if(!is.null(n_reads)){
     elementMetadata(x)$n_reads <- n_reads
   }
+  elementMetadata(x)$is_long <- !grepl(" NNNNN ", y)
   elementMetadata(x)$read_annotation <- y
   elementMetadata(x)$id <- seq_along(x)
 
@@ -44,7 +79,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   if(sum(has_insert) == 0){
     message("No insert regions is found")
-    return(GRangesList())
+    return(list(GRangesList(GRanges()), storage))
   }
 
   # Choosing the one with the earliest start site
@@ -53,55 +88,60 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   min_l1 <- min(l1_start)
   is_min_l1 <- l1_start == min_l1
 
-  # If no anchor is found
-  if(sum(is_min_l1) == 0){
-    message("No anchor regions is found")
-    return(GRangesList())
+  # If no meaning anchor is found
+  if(sum(is_min_l1) == 0 | min_l1 > 6000){
+    return(list(GRangesList(GRanges()), storage))
   }
-  # If the anchor GRanges is only polyA
-  if(min_l1 > 6000){
-    message("All regions have polyA only")
-    return(GRangesList())
+
+  if(length(which(is_min_l1)) > 1){
+    # Chossing the one with the longest insert as the representative one
+    is_min_l1 <- seq_along(x) %in% which(is_min_l1)[which.max(max(width(insert_gr[is_min_l1])))]
+    # Or we can choose the one has exact breakpoint later
   }
 
   # Determining which starter to use
   starter_gr <- x[which(is_min_l1)] # Getting the starting GRange
-  non_insert <- seqnames(starter_gr) != "Hot_L1_polyA"
-  non_insert <- lapply(non_insert, as.logical)
-
-  if(length(which(is_min_l1)) > 1){
-    is_min_l1 <- seq_along(x)%in%which(is_min_l1)[which.max(max(width(insert_gr[is_min_l1])))]
-    # message("Too many anchors for searching")
-    # return(GRangesList())
-  }
-  right_match <- sapply(non_insert, tail, n = 1)
-  left_match <- sapply(non_insert, head, n = 1)
-  has_match <- mapply(function(x, y)any(c(x, y)), x = left_match, y = right_match)
-
-  if(sum(has_match) > 1){
-    has_long <- elementMetadata(starter_gr)$is_long
-    if(any(has_long)){
-      starter_gr <- starter_gr[has_long]
-      right_match <- right_match[has_long]
-      left_match <- left_match[has_long]
-    }
-  }
-
-  if(length(starter_gr) > 1){
-    starter_gr <- starter_gr[1]
-    left_match <- left_match[1]
-    right_match <- right_match[1]
-  }
+  non_insert <- seqnames(starter_gr[[1]]) != "Hot_L1_polyA"
+  non_insert <- as.logical(non_insert)
+  left_match <- non_insert[1]
+  right_match <- tail(non_insert, n = 1)
 
   # Determining the direction of the anchor cluster
   if(any(c(left_match, right_match))){
     start_direction <- ifelse(left_match, "left", "right")
   }else{
-    return(GRangesList())
+    return(list(GRangesList(GRanges()), storage))
   }
 
   # Selecting genomic ranges for searching next GRanges
-  starter <- starter_gr[seqnames(starter_gr) != "Hot_L1_polyA"][[1]]
+  starter <- starter_gr[[1]][non_insert]
+
+  if(start_direction == "left"){
+    starter <- starter[1] # in case it has more than 1 starter
+    insert_start <- starter_gr[[1]][!non_insert]
+    insert_start <- insert_start[which.min(start(insert_start))] # in case it has two regions mapping to the insert sequence
+    storage[["5p_chr"]] <- as.character(seqnames(starter))
+    storage[["5p_genomic_regions_start"]] <- start(starter)
+    storage[["5p_genomic_regions_end"]] <- end(starter)
+    storage[["5p_genomic_break"]] <- end(starter)
+    storage[["5p_insert_start"]] <- start(insert_start)
+    storage[["5p_insert_end"]] <- end(insert_start)
+    storage[["5p_insert_break"]] <- start(insert_start)
+    storage[["5p_insert_Orientation"]] <- as.character(strand(insert_start))
+  }else{
+    starter <- tail(starter, n = 1)
+    insert_start <- starter_gr[[1]][!non_insert]
+    insert_start <- insert_start[which.min(start(insert_start))]
+    storage[["3p_chr"]] <- as.character(seqnames(starter))
+    storage[["3p_genomic_regions_start"]] <- start(starter)
+    storage[["3p_genomic_regions_end"]] <- end(starter)
+    storage[["3p_genomic_break"]] <- end(starter)
+    storage[["3p_insert_start"]] <- start(insert_start)
+    storage[["3p_insert_end"]] <- end(insert_start)
+    storage[["3p_insert_break"]] <- start(insert_start)
+    storage[["3p_insert_Orientation"]] <- as.character(strand(insert_start))
+  }
+
   next_gr <- subsetByOverlaps(x[!is_min_l1], starter + search_range)#, ignore.strand=TRUE)
 
   # Checking whether they are in the right orientation
@@ -124,16 +164,17 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     end_direction
   }
 
-  next_direction <- sapply(next_gr, .determine_direction, z=starter)
-  is_sensible <- next_direction!=start_direction & next_direction != "undetermined"
+  next_direction <- sapply(next_gr, .determine_direction, z = starter)
+  is_sensible <- next_direction != start_direction & next_direction != "undetermined"
 
   if(sum(is_sensible)==0){
     message("no sensible end")
-    return(x[is_min_l1][1])
+    return(list(x[is_min_l1], storage))
   }
 
   sensible <- next_gr[is_sensible]
-  included_seq <- elementMetadata(sensible)$anno[!grepl(":", elementMetadata(sensible)$anno)]
+  sensible_anno <- CharacterList(strsplit(elementMetadata(sensible)$read_annotation, " "))
+  included_seq <- sensible_anno[!BiocGenerics::grepl(":", sensible_anno)]
   included_seq <- included_seq[nchar(included_seq) > 5]
   included_seq <- DNAStringSetList(included_seq)
   has_polyA_seq <- unlist(lapply(included_seq, function(x){
@@ -144,13 +185,14 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     any(a_prop > 0.8|t_prop > 0.8)
     }))
   has_polyA <- has_polyA_seq|any(end(sensible[seqnames(sensible)=="Hot_L1_polyA"]) > 6000)
+  storage[["has polyA"]] <- any(has_polyA)
   sensible <- sensible[has_polyA]
-  elementMetadata(sensible)$has_polyA <- has_polyA
-  if(!any(has_polyA)){
-    message("no sensible end")
-    return(x[is_min_l1][1])
-  }
+  elementMetadata(sensible)$has_polyA <- any(has_polyA)
 
+  if(!any(has_polyA)){
+    message("no sensible end (no end with polyA)")
+    return(list(x[is_min_l1][1], storage))
+  }
 
   end_direction <- ifelse(start_direction == "left", "right", "left")
 
@@ -180,23 +222,34 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     is_ok <- score == max(score)
     end_partner <- sensible[is_ok][1]
   }else{
-    end_partner <- sensible[1]
+    end_partner <- sensible
   }
 
   # Finding 3' transduction
   # initiation
-  is_thing4search <- !(elementMetadata(x)$id%in%elementMetadata(next_gr)$id|is_min_l1)
 
   if(end_direction == "left"){
-    next_target <- end_partner[[1]][-1]
-    next_target <- next_target[seqnames(next_target) != "Hot_L1_polyA"]
+    next_target_gr <- end_partner[[1]][-1]
+    ending <- end_partner[[1]][1]
+    storage[["5p_chr"]] <- as.character(seqnames(ending))
+    storage[["5p_genomic_regions_start"]] <- start(ending)
+    storage[["5p_genomic_regions_end"]] <- end(ending)
+    storage[["5p_genomic_break"]] <- start(ending)
   }else{
-    next_target <- head(end_partner[[1]], -1)
-    next_target <- next_target[seqnames(next_target) != "Hot_L1_polyA"]
+    next_target_gr <- head(end_partner[[1]], -1)
+    ending <- tail(end_partner[[1]], n = 1)
+    storage[["3p_chr"]] <- as.character(seqnames(ending))
+    storage[["3p_genomic_regions_start"]] <- start(ending)
+    storage[["3p_genomic_regions_end"]] <- end(ending)
+    storage[["3p_genomic_break"]] <- end(ending)
   }
-
+  next_is_not_insert <- seqnames(next_target_gr) != "Hot_L1_polyA"
+  next_target <- next_target_gr[next_is_not_insert]
   middle_regions <- GRangesList()
+  transduced_regions <- next_target
   last_time <- rep(FALSE, length(x))
+  is_thing4search <- !(elementMetadata(x)$id %in% elementMetadata(next_gr)$id | is_min_l1)
+
   while(sum(is_thing4search) > 0){
     thing4search <- x[is_thing4search]
     possible_middle <- subsetByOverlaps(thing4search, next_target + search_range, ignore.strand = TRUE)
@@ -212,7 +265,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     # Flipping the strand if the strand does not match but overlap
     .rc <- function(x){
       if(length(x)==0){
-        return(GRangesList(GRanges()))
+        return(GRangesList())
       }
       # x needs to be a GRangeList
       x <- revElements(x)
@@ -233,7 +286,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     strand_not_match <- as.character(strand(ol_region)) != as.character(strand(next_target))
     possible_middle[strand_not_match] <- .rc(possible_middle[strand_not_match])
     middle_direction <- sapply(possible_middle, .determine_direction, z = next_target)
-    sensible_middle <- possible_middle[middle_direction!=start_direction&middle_direction != "undetermined"]
+    sensible_middle <- possible_middle[middle_direction != start_direction & middle_direction != "undetermined"]
 
     if(length(sensible_middle) == 0){
       break
@@ -247,25 +300,45 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     }else{
       middle_regions <- c(middle, middle_regions)
     }
-
+    transduced_regions <- c(transduced_regions, middle[[1]][seqnames(middle[[1]]) != "Hot_L1_polyA"])
     next_target <- subsetByOverlaps(middle[[1]], next_target + search_range, invert = TRUE)
     next_target <- next_target[seqnames(next_target) != "Hot_L1_polyA"]
+
     if(length(next_target)==0){
       break
     }
+
     is_thing4search <- !(elementMetadata(x)$id %in% elementMetadata(sensible_middle)$id | !is_thing4search)
+
     if(all(last_time == is_thing4search)|all(is_thing4search == FALSE)){
       break
     }
     last_time <- is_thing4search
   }
 
-  if(start_direction == "left"){
-    result <- c(starter_gr, middle_regions, end_partner)
+  # Getting information of the ending TE position
+  insert_end <- c(middle_regions, end_partner)
+  insert_end <- insert_end[seqnames(insert_end)=="Hot_L1_polyA"]
+  if(length(insert_end)==0){
+    insert_end <- GRanges("Hot_L1_polyA", IRanges(6022, 6050))
   }
+  insert_end <- unlist(insert_end)
+  insert_end <- insert_end[which.min(start(insert_end))]
 
-  if(start_direction == "right"){
+  if(start_direction == "left"){
+    storage[["3p_insert_start"]] <- start(insert_end)
+    storage[["3p_insert_end"]] <- end(insert_end)
+    storage[["3p_insert_break"]] <- end(insert_end)
+    storage[["3p_insert_Orientation"]] <- as.character(strand(insert_end))
+    storage[["3p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
+    result <- c(starter_gr, middle_regions, end_partner)
+  }else{
+    storage[["5p_insert_start"]] <- start(insert_end)
+    storage[["5p_insert_end"]] <- end(insert_end)
+    storage[["5p_insert_break"]] <- end(insert_end)
+    storage[["5p_insert_Orientation"]] <- as.character(strand(insert_end))
+    storage[["5p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
     result <- c(end_partner, middle_regions, starter_gr)
   }
-  return(result)
+  return(list(result, storage))
 }
