@@ -4,62 +4,64 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 
 # A wrapper for read annotation
-annotate_constructed_reads <- function(x, partner_is_anchor = TRUE, BPPARAM = MulticoreParam(workers = 3L)){
+annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L)){
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
-  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, partner_is_anchor = partner_is_anchor)
+  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM)
   out <- c(out[[1]], out[[2]])
   names(out) <- seq_along(out)
   return(out)
 }
-##################################
-##################################
 
+##################################
+##################################
 #' @export
-multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_replace = NULL, to_replace_element = NULL){
+#' @importFrom IRanges setdiff Views
+add_back_seq <- function(x, ir = NULL){
   if(!is.null(ir)){
     start <- start(ir)
     end <- end(ir)
-    to_replace <- elementMetadata(ir)[[to_replace_element]]
+    to_keep <- elementMetadata(ir)$annotation
   }
   n_start <- length(start)
   n_end <- length(end)
   if(n_start == 0 | n_end == 0 ){
-    return(as.character(x))
+    return(list(start = 1, end = nchar(x), info = x, seq = x))
   }
 
   if(n_start != n_end){
     stop("The length of start and end are not the same.")
   }
-
-
   idx <- order(start)
   start <- start[idx]
   end <- end[idx]
-  to_replace <- to_replace[idx]
+
   # To deal with overlapping range
   # The one on the left hand side will occupy the place first, then the second one.
   diff <- start[-1] - head(end, -1)
   diff[diff <= 0] <- 1
   start <- c(start[1], diff + head(end, -1))
-  to_replace[start > end] <- ""
   need_start <- c(1, end + 1)
   need_end <- c(start - 1, nchar(x))
-  n <- length(need_start)
-  collected <- c()
-  for(i in seq_len(n - 1)){
-    # Can be mapply
-    collected <- c(collected, substr(x, need_start[i], need_end[i]))
-    collected <- c(collected, to_replace[i])
-  }
-  out <- paste(collected[collected!=""], collapse = " ")
-  sub("^ ", "", out)
-}
+  selected_seq <- stringr::str_sub(x, start = need_start, end = need_end)
+  need_start <- need_start[selected_seq!=""]
+  need_end <- need_end[selected_seq!=""]
+  selected_seq <- selected_seq[selected_seq!=""]
 
+  start <- c(start, need_start)
+  end <- c(end, need_end)
+  to_keep <- c(to_keep, selected_seq)
+  idx <- order(start)
+  start <- start[idx]
+  end <- end[idx]
+  to_keep <- to_keep[idx]
+  seq <- stringr::str_sub(x, start = start, end = end)
+  list(start = start, end = end, info = to_keep, seq = seq)
+}
 
 #' @export
 #' @importFrom IRanges CharacterList
-.internal_annotation <-  function(clusters, partner_is_anchor = FALSE,  BPPARAM = MulticoreParam(workers = 3)){
+.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3)){
   strand <- as.character(unique(strand(clusters)))
   if(length(strand) > 1){
     stop("")
@@ -74,46 +76,58 @@ multiple_replacement <- function(x, ir = NULL, start = NULL, end = NULL,  to_rep
   partner_anno <- .annotate_reads(unlist(clusters$partner_contigs), BPPARAM = BPPARAM)
   long_anno <- .annotate_reads(unlist(clusters$long_contigs), BPPARAM = BPPARAM)
 
-  cluster_grp <- rep(seq_along(clusters$cluster_contigs), lengths(clusters$cluster_contigs))
-  partner_grp <- rep(seq_along(clusters$partner_contigs), lengths(clusters$partner_contigs))
-  long_grp <- rep(seq_along(clusters$long_contigs), lengths(clusters$long_contigs))
-
-  # Annotating read cluster with anchor regions
-  clusters$has_long <- lengths(clusters$long_contigs) != 0
+  cluster_grp <- factor(rep(seq_along(clusters$cluster_contigs), lengths(clusters$cluster_contigs)), levels = seq_along(clusters))
+  partner_grp <- factor(rep(seq_along(clusters$partner_contigs), lengths(clusters$partner_contigs)), levels = seq_along(clusters))
+  long_grp <- factor(rep(seq_along(clusters$long_contigs), lengths(clusters$long_contigs)), levels = seq_along(clusters))
 
   # Combining annotation
-  cluster_anno <- split(cluster_anno, factor(cluster_grp, levels = seq_along(clusters)))
-  partner_anno <- split(partner_anno, factor(partner_grp, levels = seq_along(clusters)))
-  long_anno <- CharacterList(split(long_anno, factor(long_grp, levels = seq_along(clusters))))
-  both_mapped <- lengths(cluster_anno) > 0 & lengths(partner_anno) > 0
+  cluster_anno <- lapply(cluster_anno, split, f = cluster_anno$grp)
+  cluster_anno <- lapply(cluster_anno, split, f = cluster_grp)
+  partner_anno <- lapply(partner_anno, split, f = partner_anno$grp)
+  partner_anno <- lapply(partner_anno, split, f = partner_grp)
+  long_anno <- lapply(long_anno, split, f = long_anno$grp)
+  long_anno <- lapply(long_anno, split, f = long_grp)
+
+
+  tmp_fun <- function(x, y){mapply(c, rep(x, each = length(y)), rep(y, length(x)), SIMPLIFY = FALSE)}
+  cluster_anno$grp <- lapply(cluster_anno$grp, function(z)lapply(z, as.character))
+  partner_anno$grp <- lapply(partner_anno$grp, function(z)lapply(z, as.character))
+  long_anno$grp <- lapply(long_anno$grp, function(z)lapply(z, as.character))
+
 
   if(strand=="+"){ # Creating all possible combination of read structures
-    combined_anno <- CharacterList(mapply(function(x, y){paste0(rep(x, each = length(y)), " NNNNN ",y)},
-                                          x = cluster_anno,
-                                          y = partner_anno,
-                                          SIMPLIFY = FALSE))
-    combined_n_reads <- IntegerList(mapply(function(x, y){rep(x, each = length(y)) + y},
+    combined_start <- mapply(tmp_fun, x = cluster_anno$start, y = partner_anno$start, SIMPLIFY = FALSE)
+    combined_end <- mapply(tmp_fun, x = cluster_anno$end, y = partner_anno$end, SIMPLIFY = FALSE)
+    combined_anno <- mapply(tmp_fun, x = cluster_anno$annotation, y = partner_anno$annotation, SIMPLIFY = FALSE)
+    combined_seq <- mapply(tmp_fun, x = cluster_anno$seq, y = partner_anno$seq, SIMPLIFY = FALSE)
+    combined_grp <- mapply(tmp_fun, x = cluster_anno$grp, y = partner_anno$grp, SIMPLIFY = FALSE)
+    combined_nreads <- IntegerList(mapply(function(x, y){rep(x, each = length(y)) + y},
                                            x = elementMetadata(clusters$cluster_contigs)$n_reads,
                                            y = elementMetadata(clusters$partner_contigs)$n_reads,
                                            SIMPLIFY = FALSE))
+
   }else{
-    combined_anno <- CharacterList(mapply(function(x, y){paste0(rep(x, each = length(y)), " NNNNN ",y)},
-                                          x = partner_anno,
-                                          y = cluster_anno,
+    combined_start <- mapply(tmp_fun, x = partner_anno$start, y = cluster_anno$start, SIMPLIFY = FALSE)
+    combined_end <- mapply(tmp_fun, x = partner_anno$end, y = cluster_anno$end, SIMPLIFY = FALSE)
+    combined_anno <- mapply(tmp_fun, x = partner_anno$annotation, y = cluster_anno$annotation, SIMPLIFY = FALSE)
+    combined_seq <- mapply(tmp_fun, x = partner_anno$seq, y = cluster_anno$seq, SIMPLIFY = FALSE)
+    combined_grp <- mapply(tmp_fun, x = partner_anno$grp, y = cluster_anno$grp, SIMPLIFY = FALSE)
+    combined_nreads <- IntegerList(mapply(function(x, y){rep(x, each = length(y)) + y},
+                                          x = elementMetadata(clusters$partner_contigs)$n_reads,
+                                          y = elementMetadata(clusters$cluster_contigs)$n_reads,
                                           SIMPLIFY = FALSE))
-    combined_n_reads <- IntegerList(mapply(function(x, y){rep(x, each = length(y)) + y},
-                                                                 x = elementMetadata(clusters$partner_contigs)$n_reads,
-                                                                 y = elementMetadata(clusters$cluster_contigs)$n_reads,
-                                                                 SIMPLIFY = FALSE))
   }
-  n_reads <- elementMetadata(clusters$long_contigs)$n_reads
-  n_reads[lengths(n_reads) == 0] <- combined_n_reads[lengths(n_reads) == 0]
-  combined_anno[any(combined_anno == " NNNNN ")] <- CharacterList(character(0))
-  combined_anno[!both_mapped] <- CharacterList(character(0))
-  combined_storage <- CharacterList(mapply(c, long_anno, combined_anno, SIMPLIFY = FALSE))
-  elementMetadata(combined_storage)$n_reads <- n_reads
-  clusters$read_annotation <- combined_storage
-  clusters
+  tmp_fun_2 <- function(i, j, k, d, g){
+    mapply(IRanges, start = i, end = j, anno = k, QNAME = d, seq = g)
+  }
+  ir <- mapply(tmp_fun_2, i = combined_start, j = combined_end, k = combined_anno, d = combined_grp, g = combined_seq, SIMPLIFY = FALSE)
+  ir <- List(ir)
+  elementMetadata(ir)$n_reads <- combined_nreads
+  long_ir <- mapply(tmp_fun_2, i = long_anno$start, j = long_anno$end, k = long_anno$annotation, d = long_anno$grp, g = long_anno$seq, SIMPLIFY = FALSE)
+  long_ir <- List(long_ir)
+  elementMetadata(long_ir)$n_reads <- elementMetadata(clusters$long_contigs)$n_reads
+  ir[lengths(long_ir) > 0] <- long_ir[lengths(long_ir) > 0]
+  ir
 }
 
 #' @importFrom  GenomicAlignments cigarToRleList
@@ -180,13 +194,13 @@ cigar_convert <- function(cigar_string, from, to){
   # Getting the location of the mapped location in the reads
   mapped_1 <- aln_1[!aln_1$CIGAR=="*",]
   mapping1_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(mapped_1$unified_cigar, from = "I", to = "M"), ops = "M"))
-  elementMetadata(mapping1_read_loc)$mapped_regions <- as.character(sam2gr(mapped_1))
+  elementMetadata(mapping1_read_loc)$annotation <- as.character(sam2gr(mapped_1))
   elementMetadata(mapping1_read_loc)$QNAME <- mapped_1$QNAME
 
   # For left clipped reads
   left_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$left$unified_cigar, from = "I", to = "M"), ops = "M"))
   elementMetadata(left_read_loc)$QNAME <- aln_2$left$QNAME
-  elementMetadata(left_read_loc)$mapped_regions <- as.character(sam2gr(aln_2$left))
+  elementMetadata(left_read_loc)$annotation <- as.character(sam2gr(aln_2$left))
 
   # For right clipped reads
   right_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$right$unified_cigar, from = "I", to = "M"), ops = "M"))
@@ -195,7 +209,7 @@ cigar_convert <- function(cigar_string, from, to){
   right_read_loc <- IRanges(start = right_clipped_start_after + start(right_clipped_read_loc),
                                end = right_clipped_start_after + end(right_clipped_read_loc))
   elementMetadata(right_read_loc)$QNAME <- aln_2$right$QNAME
-  elementMetadata(right_read_loc)$mapped_regions <- as.character(sam2gr(aln_2$right))
+  elementMetadata(right_read_loc)$annotation <- as.character(sam2gr(aln_2$right))
 
   # For middle clipped regions
   middle_grp <- sub("\\.[0-9]+$", "\\1", middle_aln_2$QNAME)
@@ -204,17 +218,28 @@ cigar_convert <- function(cigar_string, from, to){
   mid_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(middle_aln_2$unified_cigar, from = "I", to = "M"), ops = "M"))
   mid_read_loc <- IRanges(start = mid_start + start(mid_clipped_read_loc) - 1,
                           end = mid_start + end(mid_clipped_read_loc) - 1 )
-  elementMetadata(mid_read_loc)$mapped_regions <- as.character(sam2gr(middle_aln_2))
+  elementMetadata(mid_read_loc)$annotation <- as.character(sam2gr(middle_aln_2))
   elementMetadata(mid_read_loc)$QNAME <- gsub("\\..*","",middle_aln_2$QNAME)
 
   # For unmapped reads
   unmapped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$unmapped$unified_cigar, from = "I", to = "M"), ops = "M"))
   elementMetadata(unmapped_read_loc)$QNAME <- aln_2$unmapped$QNAME
-  elementMetadata(unmapped_read_loc)$mapped_regions <- as.character(sam2gr(aln_2$unmapped))
+  elementMetadata(unmapped_read_loc)$annotation <- as.character(sam2gr(aln_2$unmapped))
 
   # Combining all together
   combined_read_loc <- c(mapping1_read_loc, left_read_loc, right_read_loc, mid_read_loc, unmapped_read_loc)
   combined_read_loc <- split(combined_read_loc, factor(elementMetadata(combined_read_loc)$QNAME, levels = names(seq)))
-  anno_out <- mapply(multiple_replacement, x = seq, ir = combined_read_loc,  to_replace_element = "mapped_regions")
-  return(anno_out)
+  system.time(anno_out <- mapply(add_back_seq, x = seq, ir = combined_read_loc, SIMPLIFY = FALSE))
+  start <- lapply(anno_out, "[[", i = 1)
+  end <- lapply(anno_out, "[[", i = 2)
+  annotation <- lapply(anno_out, "[[", i = 3)
+  seq <- lapply(anno_out, "[[", i = 4)
+  grp <- factor(rep(names(start), lengths(start)), levels = names(start))
+
+  # anno_out <- IRanges(start = unlist(start), end = unlist(end), annotation = unlist(annotation))
+  return(list(start = unlist(start, use.names = FALSE),
+              end = unlist(end, use.names = FALSE),
+              annotation = unlist(annotation, use.names = FALSE),
+              seq = unlist(seq, use.names = FALSE),
+              grp = grp))
 }
