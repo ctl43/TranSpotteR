@@ -1,21 +1,32 @@
 #' @export
 #' @importFrom BiocParallel MulticoreParam bplapply
-#' @importFrom IRanges CharacterList
+#' @importFrom IRanges CharacterList NumericList IntegerList LogicalList
 #' @importFrom BiocGenerics width unlist
-#' @importFrom S4Vectors List
+#' @importFrom S4Vectors List elementMetadata 'elementMetadata<-'
 
 line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   usable_clusters <- clusters[elementMetadata(clusters)$is_usable]
+
   if(length(usable_clusters) == 0){
     return(NULL)
   }
+
+  # Tidying up the elementMetadata after groupping
   anno <- usable_clusters$read_annotation
   grp <- rep(usable_clusters$group, lengths(anno))
-  n_reads <- unlist(elementMetadata(anno)$n_reads)
+  meta <- lapply(elementMetadata(anno), unlist)
   anno <- unlist(anno, use.names = FALSE)
   anno <- unname(anno)
-  anno <- CharacterList(split(anno, grp))
-  elementMetadata(anno)$n_reads <- IntegerList(split(n_reads, grp))
+  anno <- List(split(anno, grp))
+  meta_class <- sapply(meta, class)
+  meta_class <- sub("integer",  "IntegerList", meta_class)
+  meta_class <- sub("character",  "CharacterList", meta_class)
+  meta_class <- sub("numeric",  "NumericList", meta_class)
+  meta_class <- sub("logical",  "LogicalList", meta_class)
+  meta <- lapply(meta, split, f = grp)
+  meta <- mapply(function(x, y)eval(call(x,y)), x = meta_class, y = meta, SIMPLIFY = FALSE)
+  meta <- DataFrame(meta)
+  elementMetadata(anno) <- meta
   for_parallel <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
   out <- bplapply(for_parallel, function(x){
     mapply(.internal_inference, y = x,
@@ -23,14 +34,18 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
            SIMPLIFY = FALSE)
     },
     BPPARAM = BPPARAM) # Need a better way to store the number of consisted reads
+  # .internal_inference(for_parallel[[1]][[1]])
   out <- unlist(out, recursive = FALSE, use.names = FALSE)
   gr_out <- lapply(out, "[[", i = 1)
   df_out <- lapply(out, "[[", i = 2)
-  df_out <- do.call(rbind, df_out)
+  col_names <- names(df_out[[1]])
+  df_out <- lapply(df_out, unlist, use.names = FALSE)
+  df_out <- do.call(rbind.data.frame, df_out)
+  colnames(df_out) <- col_names
   gr_out <- List(gr_out)
-  tmp <- GRangesList(lapply(gr_out, unlist))
-  elementMetadata(gr_out)$is_full <- max(width(range(tmp[seqnames(tmp) == "Hot_L1_polyA"]))) > 5500
-  list(gr_out[lengths(gr_out) > 0], df_out[, lengths(gr_out) > 0])
+  tmp <- lapply(gr_out, IRangesList)
+  # elementMetadata(gr_out)$is_full <- max(width(range(tmp[seqnames(tmp) == "Hot_L1_polyA"]))) > 5500
+  list(gr_out[lengths(gr_out) > 0], df_out[lengths(gr_out) > 0, ])
 }
 
 
@@ -62,13 +77,16 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
                   "3p_insert_break" = NA,
                   "3p_insert_Orientation" = NA,
                   "3p_transducted_genomic_region" = NA,
-                  "has polyA" = NA)
+                  "has_polyA" = NA)
+  names(y) <- seq_along(y)
+  y_copy <- y
+  y <- CharacterList(lapply(y, function(x)elementMetadata(x)$anno))
+  x <- convert_character2gr(unlist(lapply(y, paste, collapse = " "), use.names = FALSE))
 
-  x <- convert_character2gr(y)
+  # x <- convert_character2gr(y)
   if(!is.null(n_reads)){
     elementMetadata(x)$n_reads <- n_reads
   }
-  elementMetadata(x)$is_long <- !grepl(" NNNNN ", y)
   elementMetadata(x)$read_annotation <- y
   elementMetadata(x)$id <- seq_along(x)
 
@@ -79,7 +97,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   if(sum(has_insert) == 0){
     message("No insert regions is found")
-    return(list(GRangesList(GRanges()), storage))
+    return(list(list(IRanges()), storage))
   }
 
   # Choosing the one with the earliest start site
@@ -90,7 +108,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   # If no meaning anchor is found
   if(sum(is_min_l1) == 0 | min_l1 > 6000){
-    return(list(GRangesList(GRanges()), storage))
+    return(list(list(IRanges()), storage))
   }
 
   if(length(which(is_min_l1)) > 1){
@@ -110,7 +128,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   if(any(c(left_match, right_match))){
     start_direction <- ifelse(left_match, "left", "right")
   }else{
-    return(list(GRangesList(GRanges()), storage))
+    return(list(list(IRanges()), storage))
   }
 
   # Selecting genomic ranges for searching next GRanges
@@ -169,11 +187,11 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   if(sum(is_sensible)==0){
     message("no sensible end")
-    return(list(x[is_min_l1], storage))
+    return(list(y_copy[is_min_l1], storage))
   }
 
   sensible <- next_gr[is_sensible]
-  sensible_anno <- CharacterList(strsplit(elementMetadata(sensible)$read_annotation, " "))
+  sensible_anno <- elementMetadata(sensible)$read_annotation
   included_seq <- sensible_anno[!BiocGenerics::grepl(":", sensible_anno)]
   included_seq <- included_seq[nchar(included_seq) > 5]
   included_seq <- DNAStringSetList(included_seq)
@@ -185,13 +203,12 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     any(a_prop > 0.8|t_prop > 0.8)
     }))
   has_polyA <- has_polyA_seq|any(end(sensible[seqnames(sensible)=="Hot_L1_polyA"]) > 6000)
-  storage[["has polyA"]] <- any(has_polyA)
+  storage[["has_polyA"]] <- any(has_polyA)
   sensible <- sensible[has_polyA]
-  elementMetadata(sensible)$has_polyA <- any(has_polyA)
 
   if(!any(has_polyA)){
     message("no sensible end (no end with polyA)")
-    return(list(x[is_min_l1][1], storage))
+    return(list(y_copy[is_min_l1], storage))
   }
 
   end_direction <- ifelse(start_direction == "left", "right", "left")
@@ -272,12 +289,12 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
       original <- CharacterList(strand(x))
       strand(x)[original=="+"] <- "-"
       strand(x)[original=="-"] <- "+"
-      anno <- CharacterList(strsplit(elementMetadata(x)$read_annotation, " "))
+      anno <- elementMetadata(x)$read_annotation
       anno <- revElements(anno)
       anno[grepl(":", anno)] <- CharacterList(lapply(x, as.character))
       y <- anno[!grepl(":", anno)]
-      complemented <- CharacterList(lapply(y, function(x)as.character(complement(DNAStringSet(x)))))
-      anno[!grepl(":", anno)] <- complemented
+      rced <- CharacterList(lapply(y, function(x)as.character(reverseComplement(DNAStringSet(x)))))
+      anno[!grepl(":", anno)] <- rced
       elementMetadata(x)$read_annotation <- sapply(anno, paste, collapse = " ")
       elementMetadata(x)$rc <- TRUE
       x
@@ -304,7 +321,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     next_target <- subsetByOverlaps(middle[[1]], next_target + search_range, invert = TRUE)
     next_target <- next_target[seqnames(next_target) != "Hot_L1_polyA"]
 
-    if(length(next_target)==0){
+    if(length(next_target) == 0){
       break
     }
 
@@ -331,14 +348,31 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["3p_insert_break"]] <- end(insert_end)
     storage[["3p_insert_Orientation"]] <- as.character(strand(insert_end))
     storage[["3p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
-    result <- c(starter_gr, middle_regions, end_partner)
+    selected_idx <- names(c(starter_gr, middle_regions, end_partner))
   }else{
     storage[["5p_insert_start"]] <- start(insert_end)
     storage[["5p_insert_end"]] <- end(insert_end)
     storage[["5p_insert_break"]] <- end(insert_end)
     storage[["5p_insert_Orientation"]] <- as.character(strand(insert_end))
     storage[["5p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
-    result <- c(end_partner, middle_regions, starter_gr)
+    selected_idx <- names(c(end_partner, middle_regions, starter_gr))
   }
-  return(list(result, storage))
+  if(any(colnames(elementMetadata(middle_regions))=="rc")){
+    is_rc <- elementMetadata(middle_regions)[["rc"]]
+    id <- elementMetadata(middle_regions)[["id"]]
+    selected <- y_copy[id[is_rc]]
+    selected <- lapply(selected, function(x){
+      x <- rev(x)
+      is_seq <- !grepl(":", elementMetadata(x)$anno)
+      non_seq <- elementMetadata(x)$anno[!is_seq]
+      # sub(":-", ":+", non_seq) Need to reverse the strand !!!!!!!!!!!!!
+      elementMetadata(x)$anno[is_seq] <- as.character(reverseComplement(DNAStringSet(elementMetadata(x)$anno[is_seq])))
+      elementMetadata(x)$seq <- as.character(reverseComplement(DNAStringSet(elementMetadata(x)$seq)))
+      x
+    })
+    y_copy[id[is_rc]] <- selected
+  }
+
+  result <- y_copy[selected_idx]
+  return(list(unname(result), storage))
 }
