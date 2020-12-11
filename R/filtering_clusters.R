@@ -4,20 +4,20 @@
 #' @importFrom GenomeInfoDb seqnames
 #' @importFrom IRanges LogicalList
 
-filter_clusters <- function(x, insert_seqname = "Hot_L1_polyA"){
-  # As the inference process is complicated and takes time, this function is to filter those obviously useless information
+filter_clusters <- function(x, insert_seqname = "Hot_L1_polyA")
+  # As the inference process is complicated and takes time,
+  # this function is to filter those obviously useless information to reduce the computation time
+  # Written by Cheuk-Ting Law
+{
   # Getting the mapping information
   anno <- x$read_annotation
-  group <- rep(x$group, lengths(x$read_annotation))
   anno_grp <- factor(rep(seq_along(x), lengths(anno)), levels = seq_along(x))
-  flat_anno <- unname(unlist(anno))
-  anno <- CharacterList(lapply(flat_anno, function(x)elementMetadata(x)$anno))
+  flat_anno <- unlist(anno, recursive = FALSE, use.name = FALSE)
+  anno <- CharacterList(lapply(flat_anno, "[[", i = "anno"))
 
-  # Comnverting into a GRanges object
+  # Converting into a list of GRanges objects
   anno_ranges <- anno[S4Vectors::grepl(":", anno)]
-  tmp_grp <- factor(rep(seq_along(anno_ranges), lengths(anno_ranges)), levels = seq_along(anno_ranges))
-  gr <- unlist(convert_character2gr(unlist(anno_ranges)))
-  gr <- S4Vectors::split(gr, tmp_grp)
+  gr <- convert_character2gr(anno_ranges)
   gr <- unique(gr)
 
   # 1. Filtering reads with insert sequence but without anchor information
@@ -26,10 +26,11 @@ filter_clusters <- function(x, insert_seqname = "Hot_L1_polyA"){
   # 2. Filtering related read cluster group that has not insert information
   insert_gr <- gr[grepl(insert_seqname, seqnames(gr))]
   has_insert <- any(start(insert_gr) < 6000)
+  tmp_grp <- rep(x$group, lengths(x$read_annotation))
+  group <- factor(tmp_grp, levels = unique(tmp_grp))
   group_has_insert <- any(LogicalList(split(has_insert, group)))
-  is_usable_grp <- sort(unique(group))[group_has_insert]
-  is_from_usable_grp <- group%in%is_usable_grp
-  # good_insert <- any(width(insert_gr) > 100) # Insert length is longer than 100 nt
+  usable_grp <- as.integer(levels(group))[group_has_insert]
+  is_from_usable_grp <- tmp_grp%in%usable_grp
 
   # 3. Extracting regions that are close together (does not indicate transduction event)
   anchor_gr <- gr[!grepl(insert_seqname, seqnames(gr))]

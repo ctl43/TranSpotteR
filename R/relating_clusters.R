@@ -9,13 +9,11 @@
 relating_cluster <- function(cluster, insert_seqname = "Hot_L1_polyA", overlap_distance = 1000){
   # Getting the anchor information
   grp <- factor(rep(seq_along(cluster), lengths(cluster$read_annotation)), levels = seq_along(cluster))
-  anno <- unname(unlist(cluster$read_annotation))
-  # sub_grp <- factor(rep(seq_along(anno), lengths(anno)), levels = seq_along(anno))
-  anno <- CharacterList(lapply(anno, function(x)elementMetadata(x)$anno))
+  anno <- unlist(cluster$read_annotation, recursive = FALSE, use.name = FALSE)
+  anno <- CharacterList(lapply(anno, "[[", i = "anno"))
   anno_ranges <- anno[S4Vectors::grepl(":",anno)]
-  tmp_grp <- factor(rep(seq_along(anno_ranges), lengths(anno_ranges)), levels = seq_along(anno_ranges))
-  gr <- unlist(convert_character2gr(unlist(anno_ranges)))
-  grp <- rep(grp, table(tmp_grp)) # complex grp
+  gr <- convert_character2gr(unlist(anno_ranges))
+  grp <- rep(grp, lengths(anno_ranges)) # complex grp
   gr <- S4Vectors::split(gr, grp)
   gr <- unique(gr)
 
