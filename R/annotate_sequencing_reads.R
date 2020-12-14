@@ -31,24 +31,31 @@ is_polyA <- function(x){
 }
 
 #' @export
+get_cigar_by_position <- function(cigar, start, end){
+  is_empty_out <- (end < start)
+  out <- mapply(function(x, y, z)rle_to_cigar(z[x:y]),x = start, y = end, z = GenomicAlignments::cigarToRleList(cigar))
+  out[!is_empty_out]
+}
+
+#' @export
 #' @importFrom IRanges setdiff Views
 add_back_seq <- function(x, ir = NULL){
   start <- start(ir)
   end <- end(ir)
-  to_keep <- elementMetadata(ir)$annotation
+  to_keep <- elementMetadata(ir)[c("annotation", "cigar")]
   n_start <- length(start)
   n_end <- length(end)
   if(n_start == 0 | n_end == 0 ){
-    return(list(start = 1, end = nchar(x), info = x, seq = x))
+    return(list(start = 1, end = nchar(x), seq = x, annotation = x, cigar = "*"))
   }
 
   if(n_start != n_end){
     stop("The length of start and end are not the same.")
   }
   idx <- order(start)
-  start <- start[idx]
-  end <- end[idx]
-  to_keep <- to_keep[idx]
+  original_start <- start <- start[idx]
+  original_end <- end <- end[idx]
+  to_keep <- to_keep[idx, ]
 
   # To deal with overlapping range
   # The one on the left hand side will occupy the place first, then the second one.
@@ -58,19 +65,22 @@ add_back_seq <- function(x, ir = NULL){
   need_start <- c(1, end + 1)
   need_end <- c(start - 1, nchar(x))
   selected_seq <- stringr::str_sub(x, start = need_start, end = need_end)
-  need_start <- need_start[selected_seq!=""]
-  need_end <- need_end[selected_seq!=""]
-  selected_seq <- selected_seq[selected_seq!=""]
+  need_start <- need_start[selected_seq != ""]
+  need_end <- need_end[selected_seq != ""]
+  selected_seq <- selected_seq[selected_seq != ""]
 
+  cigar_start <- start - original_start + 1
+  cigar_end <- cigar_start + end - start
+  to_keep$cigar <- get_cigar_by_position(to_keep$cigar, start = cigar_start, end = cigar_end)
   start <- c(start, need_start)
   end <- c(end, need_end)
-  to_keep <- c(to_keep, selected_seq)
   idx <- order(start)
   start <- start[idx]
   end <- end[idx]
-  to_keep <- to_keep[idx]
+  to_keep <- list(annotation = c(to_keep$annotation, selected_seq)[idx],
+                  cigar = c(to_keep$cigar, rep("*", length(selected_seq)))[idx])
   seq <- stringr::str_sub(x, start = start, end = end)
-  list(start = start, end = end, info = to_keep, seq = seq)
+  return(do.call(list, c(list(start = start, end = end, seq = seq), to_keep)))
 }
 
 #' @export
@@ -125,7 +135,6 @@ add_back_seq <- function(x, ir = NULL){
                                           y = elementMetadata(clusters$cluster_contigs)$n_reads,
                                           SIMPLIFY = FALSE))
   }
-
 
   tmp_fun_2 <- function(...){
     mapply(data.table, ..., SIMPLIFY = FALSE)
@@ -212,11 +221,13 @@ cigar_convert <- function(cigar_string, from, to)
   mapping1_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(mapped_1$unified_cigar, from = "I", to = "M"), ops = "M"))
   elementMetadata(mapping1_read_loc)$annotation <- as.character(sam2gr(mapped_1))
   elementMetadata(mapping1_read_loc)$QNAME <- mapped_1$QNAME
+  elementMetadata(mapping1_read_loc)$cigar <- mapped_1$unified_cigar
 
   # For left clipped reads
   left_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$left$unified_cigar, from = "I", to = "M"), ops = "M"))
   elementMetadata(left_read_loc)$QNAME <- aln_2$left$QNAME
   elementMetadata(left_read_loc)$annotation <- as.character(sam2gr(aln_2$left))
+  elementMetadata(left_read_loc)$cigar <- aln_2$left$unified_cigar
 
   # For right clipped reads
   right_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$right$unified_cigar, from = "I", to = "M"), ops = "M"))
@@ -226,6 +237,7 @@ cigar_convert <- function(cigar_string, from, to)
                                end = right_clipped_start_after + end(right_clipped_read_loc))
   elementMetadata(right_read_loc)$QNAME <- aln_2$right$QNAME
   elementMetadata(right_read_loc)$annotation <- as.character(sam2gr(aln_2$right))
+  elementMetadata(right_read_loc)$cigar <- aln_2$right$unified_cigar
 
   # For middle clipped regions
   middle_grp <- sub("\\.[0-9]+$", "\\1", middle_aln_2$QNAME)
@@ -236,24 +248,28 @@ cigar_convert <- function(cigar_string, from, to)
                           end = mid_start + end(mid_clipped_read_loc) - 1 )
   elementMetadata(mid_read_loc)$annotation <- as.character(sam2gr(middle_aln_2))
   elementMetadata(mid_read_loc)$QNAME <- gsub("\\..*","",middle_aln_2$QNAME)
+  elementMetadata(mid_read_loc)$cigar <- middle_aln_2$unified_cigar
 
   # For unmapped reads
   unmapped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$unmapped$unified_cigar, from = "I", to = "M"), ops = "M"))
   elementMetadata(unmapped_read_loc)$QNAME <- aln_2$unmapped$QNAME
   elementMetadata(unmapped_read_loc)$annotation <- as.character(sam2gr(aln_2$unmapped))
+  elementMetadata(unmapped_read_loc)$cigar <- aln_2$unmapped$unified_cigar
 
   # Combining all together
   combined_read_loc <- c(mapping1_read_loc, left_read_loc, right_read_loc, mid_read_loc, unmapped_read_loc)
+  tmp_cigar <- sub("^[0-9]+S", "", elementMetadata(combined_read_loc)$cigar)
+  elementMetadata(combined_read_loc)$cigar <- sub("[0-9]+S$", "", tmp_cigar)
   combined_read_loc <- split(combined_read_loc, factor(elementMetadata(combined_read_loc)$QNAME, levels = names(seq)))
   system.time(anno_out <- mapply(add_back_seq, x = seq, ir = combined_read_loc, SIMPLIFY = FALSE))
   collected <- lapply(seq_along(anno_out[[1]]), function(x)lapply(anno_out, "[[", i = x))
   grp <- factor(rep(names(collected[[1]]), lengths(collected[[1]])), levels = names(collected[[1]]))
   collected <- lapply(collected, unlist, use.names = FALSE)
   setDT(collected)
-  colnames(collected) <- c("start", "end", "annotation", "seq")
+  colnames(collected) <- c("start", "end", "seq", "annotation", "cigar")
   collected <- cbind(collected, QNAME = grp)
 
-  # customised annotation
+  # Customized annotation
   if(any(is.null(names(customised_annotation)))){
     names(customised_annotation) <- paste0("customised_anno_", seq_along(customised_annotation))
   }
