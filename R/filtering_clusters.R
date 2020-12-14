@@ -13,7 +13,7 @@ filter_clusters <- function(x, insert_seqname = "Hot_L1_polyA")
   anno <- x$read_annotation
   anno_grp <- factor(rep(seq_along(x), lengths(anno)), levels = seq_along(x))
   flat_anno <- unlist(anno, recursive = FALSE, use.name = FALSE)
-  anno <- CharacterList(lapply(flat_anno, "[[", i = "anno"))
+  anno <- CharacterList(lapply(flat_anno, "[[", i = "annotation"))
 
   # Converting into a list of GRanges objects
   anno_ranges <- anno[S4Vectors::grepl(":", anno)]

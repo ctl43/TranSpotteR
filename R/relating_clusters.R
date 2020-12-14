@@ -10,7 +10,7 @@ relating_cluster <- function(cluster, insert_seqname = "Hot_L1_polyA", overlap_d
   # Getting the anchor information
   grp <- factor(rep(seq_along(cluster), lengths(cluster$read_annotation)), levels = seq_along(cluster))
   anno <- unlist(cluster$read_annotation, recursive = FALSE, use.name = FALSE)
-  anno <- CharacterList(lapply(anno, "[[", i = "anno"))
+  anno <- CharacterList(lapply(anno, "[[", i = "annotation"))
   anno_ranges <- anno[S4Vectors::grepl(":",anno)]
   gr <- convert_character2gr(unlist(anno_ranges))
   grp <- rep(grp, lengths(anno_ranges)) # complex grp
