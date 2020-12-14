@@ -1,12 +1,12 @@
 #' @export
-#' @importFrom BiocParallel MulticoreParam bplapply
+#' @importFrom BiocParallel MulticoreParam bplapply bpmapply
 #' @importFrom IRanges CharacterList NumericList IntegerList LogicalList
 #' @importFrom BiocGenerics width unlist
 #' @importFrom S4Vectors List elementMetadata 'elementMetadata<-'
+#' @importFrom data.table setDT
 
 line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   usable_clusters <- clusters[elementMetadata(clusters)$is_usable]
-
   if(length(usable_clusters) == 0){
     return(NULL)
   }
@@ -16,10 +16,8 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   grp <- rep(usable_clusters$group, lengths(usable_clusters$read_annotation))
   anno <- split(unlist(usable_clusters$read_annotation, recursive = FALSE, use.names = FALSE), grp)
   nreads <- split(unlist(usable_clusters$nreads, recursive = FALSE, use.names = FALSE), grp)
-
   for_parallel_y <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
   for_parallel_n_reads <- split(nreads, as.integer(cut(seq_along(nreads), breaks = BPPARAM$workers)))
-
   out <- bpmapply(function(a ,b){
     mapply(.internal_inference, y = a,
            n_reads = b,
@@ -30,10 +28,11 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   anno_out <- lapply(out, "[[", i = 1)
   df_out <- lapply(out, "[[", i = 2)
   col_names <- names(df_out[[1]])
-  df_out <- lapply(df_out, unlist, use.names = FALSE)
-  df_out <- do.call(rbind.data.frame, df_out)
+  df_out <- do.call(rbind, lapply(df_out, setDT))
+  df_out <- data.frame(df_out)
   colnames(df_out) <- col_names
   anno_out <- List(anno_out)
+  rownames(df_out) <- names(anno_out) <- names(anno)
   list(anno_out[lengths(anno_out) > 0], df_out[lengths(anno_out) > 0, ])
 }
 
@@ -69,8 +68,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
                   "has_polyA" = NA)
   names(y) <- seq_along(y)
   y_copy <- y
-
-  y <- CharacterList(lapply(y, "[[", i = "anno"))
+  y <- CharacterList(lapply(y, "[[", i = "annotation"))
   y <- y[BiocGenerics::grepl(":", y)]
   x <- convert_character2gr(y)
   elementMetadata(x)$read_annotation <- y_copy
@@ -181,18 +179,8 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   }
 
   sensible <- next_gr[is_sensible]
-  sensible_anno <- CharacterList(lapply(elementMetadata(sensible)$read_annotation, "[[", i = "anno"))
-  included_seq <- sensible_anno[!BiocGenerics::grepl(":", sensible_anno)]
-  included_seq <- included_seq[nchar(included_seq) > 5]
-  included_seq <- DNAStringSetList(included_seq)
-  has_polyA_seq <- unlist(lapply(included_seq, function(x){
-    j <- Biostrings::letterFrequency(x, letters = c("A", "T", "G", 'C'))
-    tot <- rowSums(j)
-    a_prop <- j[, 1] / tot
-    t_prop <- j[, 2] / tot
-    any(a_prop > 0.8|t_prop > 0.8)
-    }))
-  has_polyA <- has_polyA_seq|any(end(sensible[seqnames(sensible)=="Hot_L1_polyA"]) > 6000)
+  has_polyA_seq <- LogicalList(lapply(elementMetadata(sensible)$read_annotation, "[[", i = "is_polyA"))
+  has_polyA <- any(has_polyA_seq)|any(end(sensible[seqnames(sensible) == "Hot_L1_polyA"]) > 6000)
   storage[["has_polyA"]] <- any(has_polyA)
   sensible <- sensible[has_polyA]
 
@@ -263,7 +251,6 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     if(length(possible_middle) == 0){
       break
     }
-
     ol_region <- GRangesList(lapply(possible_middle, function(x)subsetByOverlaps(x, next_target + search_range, ignore.strand = TRUE)))
     strands <- lapply(strand(ol_region), function(x)unique(as.character(x)))
     ol_region <- ol_region[lengths(strands) == 1]
@@ -305,11 +292,10 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   # Getting information of the ending TE position
   insert_end <- c(middle_regions, end_partner)
-  insert_end <- insert_end[seqnames(insert_end)=="Hot_L1_polyA"]
-  if(length(insert_end)==0){
+  insert_end <- unlist(insert_end[seqnames(insert_end)=="Hot_L1_polyA"])
+  if(length(insert_end) == 0){
     insert_end <- GRanges("Hot_L1_polyA", IRanges(6022, 6050))
   }
-  insert_end <- unlist(insert_end)
   insert_end <- insert_end[which.min(start(insert_end))]
 
   if(start_direction == "left"){
@@ -317,14 +303,18 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["3p_insert_end"]] <- end(insert_end)
     storage[["3p_insert_break"]] <- end(insert_end)
     storage[["3p_insert_Orientation"]] <- as.character(strand(insert_end))
-    storage[["3p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
+    if(length(transduced_regions)!=0){
+      storage[["3p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
+    }
     result <- c(starter_gr, middle_regions, end_partner)
   }else{
     storage[["5p_insert_start"]] <- start(insert_end)
     storage[["5p_insert_end"]] <- end(insert_end)
     storage[["5p_insert_break"]] <- end(insert_end)
     storage[["5p_insert_Orientation"]] <- as.character(strand(insert_end))
-    storage[["5p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
+    if(length(transduced_regions)!=0){
+      storage[["5p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
+    }
     result <- c(end_partner, middle_regions, starter_gr)
   }
   return(list(elementMetadata(result)[[1]], storage))
@@ -351,23 +341,23 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 }
 
 .rc_dt <- function(z){
-  z <- split(z, z$QNAME)
+  z <- split(z, factor(z$QNAME, levels = unique(z$QNAME)))
   z <- lapply(z, function(p){
     # Inverting the read position
-    q <- p[,c("end", "start")]
+    q <- p[, c("end", "start")]
     q <- abs(q - max(q)) + 1
     p[[1]] <- q[[1]]
     p[[2]] <- q[[2]]
     p <- p[order(p[["start"]])]
-    is_not_seq <- grepl(":", p$anno)
+    is_not_seq <- grepl(":", p$annotation)
     # RC information in read annotation
-    p$anno[!is_not_seq] <- as.character(reverseComplement(DNAStringSet(p$anno[!is_not_seq])))
-    to_be_replaced <- p$anno[is_not_seq]
+    p$annotation[!is_not_seq] <- as.character(reverseComplement(DNAStringSet(p$annotation[!is_not_seq])))
+    to_be_replaced <- p$annotation[is_not_seq]
     is_minus <- grepl(":-", to_be_replaced)
     is_plus <- grepl(":\\+", to_be_replaced)
-    to_be_replaced[is_minus] <- sub(":-",":+",to_be_replaced[is_minus])
-    to_be_replaced[is_plus] <- sub(":\\+",":-",to_be_replaced[is_plus])
-    p$anno[is_not_seq] <- to_be_replaced
+    to_be_replaced[is_minus] <- sub(":-", ":+", to_be_replaced[is_minus])
+    to_be_replaced[is_plus] <- sub(":\\+", ":-", to_be_replaced[is_plus])
+    p$annotation[is_not_seq] <- to_be_replaced
     # RC the sequence
     p$seq <- as.character(reverseComplement(DNAStringSet(p$seq)))
     return(p)
