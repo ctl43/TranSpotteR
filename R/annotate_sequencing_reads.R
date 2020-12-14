@@ -10,7 +10,7 @@ annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L)
 {
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
-  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM)
+  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, customised_annotation = list(is_polyA = is_polyA))
   out <- c(out[[1]], out[[2]])
   names(out) <- seq_along(out)
   return(out)
@@ -19,13 +19,23 @@ annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L)
 ##################################
 ##################################
 #' @export
+#' @importFrom Biostrings BStringSet letterFrequency
+is_polyA <- function(x){
+  j <- letterFrequency(BStringSet(x), letters = c("A", "T", "G", 'C'))
+  tot <- rowSums(j)
+  a_prop <- j[, 1] / tot
+  t_prop <- j[, 2] / tot
+  out <- (a_prop > 0.8|t_prop > 0.8) & (nchar(x) > 5)
+  out[grepl(":", x)] <- FALSE
+  out
+}
+
+#' @export
 #' @importFrom IRanges setdiff Views
 add_back_seq <- function(x, ir = NULL){
-  if(!is.null(ir)){
-    start <- start(ir)
-    end <- end(ir)
-    to_keep <- elementMetadata(ir)$annotation
-  }
+  start <- start(ir)
+  end <- end(ir)
+  to_keep <- elementMetadata(ir)$annotation
   n_start <- length(start)
   n_end <- length(end)
   if(n_start == 0 | n_end == 0 ){
@@ -65,7 +75,7 @@ add_back_seq <- function(x, ir = NULL){
 
 #' @export
 #' @importFrom IRanges CharacterList
-.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3))
+.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
   # A wrapper function to annotate clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
   # Written by Cheuk-Ting Law
@@ -80,58 +90,53 @@ add_back_seq <- function(x, ir = NULL){
   }
 
   # Can be sped up by combining all the reads together and only doing once.
-  cluster_anno <- .annotate_reads(unlist(clusters$cluster_contigs), BPPARAM = BPPARAM)
-  partner_anno <- .annotate_reads(unlist(clusters$partner_contigs), BPPARAM = BPPARAM)
-  long_anno <- .annotate_reads(unlist(clusters$long_contigs), BPPARAM = BPPARAM)
+  cluster_anno <- .annotate_reads(unlist(clusters$cluster_contigs), BPPARAM = BPPARAM, customised_annotation = customised_annotation)
+  partner_anno <- .annotate_reads(unlist(clusters$partner_contigs), BPPARAM = BPPARAM, customised_annotation = customised_annotation)
+  long_anno <- .annotate_reads(unlist(clusters$long_contigs), BPPARAM = BPPARAM, customised_annotation = customised_annotation)
   cluster_grp <- factor(rep(seq_along(clusters$cluster_contigs), lengths(clusters$cluster_contigs)), levels = seq_along(clusters))
   partner_grp <- factor(rep(seq_along(clusters$partner_contigs), lengths(clusters$partner_contigs)), levels = seq_along(clusters))
   long_grp <- factor(rep(seq_along(clusters$long_contigs), lengths(clusters$long_contigs)), levels = seq_along(clusters))
 
   # Combining annotation
-  cluster_anno <- lapply(cluster_anno, split, f = cluster_anno$grp)
+  cluster_anno <- lapply(cluster_anno, split, f = cluster_anno$QNAME)
   cluster_anno <- lapply(cluster_anno, split, f = cluster_grp)
-  partner_anno <- lapply(partner_anno, split, f = partner_anno$grp)
+  partner_anno <- lapply(partner_anno, split, f = partner_anno$QNAME)
   partner_anno <- lapply(partner_anno, split, f = partner_grp)
-  long_anno <- lapply(long_anno, split, f = long_anno$grp)
+  long_anno <- lapply(long_anno, split, f = long_anno$QNAME)
   long_anno <- lapply(long_anno, split, f = long_grp)
 
   tmp_fun <- function(x, y){mapply(c, rep(x, each = length(y)), rep(y, length(x)), SIMPLIFY = FALSE)}
-  cluster_anno$grp <- lapply(cluster_anno$grp, function(z)lapply(z, as.character))
-  partner_anno$grp <- lapply(partner_anno$grp, function(z)lapply(z, as.character))
-  long_anno$grp <- lapply(long_anno$grp, function(z)lapply(z, as.character))
+  cluster_anno$QNAME <- lapply(cluster_anno$QNAME, function(z)lapply(z, as.character))
+  partner_anno$QNAME <- lapply(partner_anno$QNAME, function(z)lapply(z, as.character))
+  long_anno$QNAME <- lapply(long_anno$QNAME, function(z)lapply(z, as.character))
 
   if(strand=="+"){ # Creating all possible combination of read structures
-    combined_start <- mapply(tmp_fun, x = cluster_anno$start, y = partner_anno$start, SIMPLIFY = FALSE)
-    combined_end <- mapply(tmp_fun, x = cluster_anno$end, y = partner_anno$end, SIMPLIFY = FALSE)
-    combined_anno <- mapply(tmp_fun, x = cluster_anno$annotation, y = partner_anno$annotation, SIMPLIFY = FALSE)
-    combined_seq <- mapply(tmp_fun, x = cluster_anno$seq, y = partner_anno$seq, SIMPLIFY = FALSE)
-    combined_grp <- mapply(tmp_fun, x = cluster_anno$grp, y = partner_anno$grp, SIMPLIFY = FALSE)
+    combined_info <- mapply(function(x,y)mapply(tmp_fun, x = x, y = y, SIMPLIFY = FALSE),
+                            x = cluster_anno, y = partner_anno, SIMPLIFY = FALSE)
     combined_nreads <- IntegerList(mapply(function(x, y)rep(x, each = length(y)) + y,
                                            x = elementMetadata(clusters$cluster_contigs)$n_reads,
                                            y = elementMetadata(clusters$partner_contigs)$n_reads,
                                            SIMPLIFY = FALSE))
   }else{
-    combined_start <- mapply(tmp_fun, x = partner_anno$start, y = cluster_anno$start, SIMPLIFY = FALSE)
-    combined_end <- mapply(tmp_fun, x = partner_anno$end, y = cluster_anno$end, SIMPLIFY = FALSE)
-    combined_anno <- mapply(tmp_fun, x = partner_anno$annotation, y = cluster_anno$annotation, SIMPLIFY = FALSE)
-    combined_seq <- mapply(tmp_fun, x = partner_anno$seq, y = cluster_anno$seq, SIMPLIFY = FALSE)
-    combined_grp <- mapply(tmp_fun, x = partner_anno$grp, y = cluster_anno$grp, SIMPLIFY = FALSE)
+    combined_info <- mapply(function(x,y)mapply(tmp_fun, x = x, y = y, SIMPLIFY = FALSE),
+                            x = partner_anno, y = cluster_anno, SIMPLIFY = FALSE)
     combined_nreads <- IntegerList(mapply(function(x, y)rep(x, each = length(y)) + y,
                                           x = elementMetadata(clusters$partner_contigs)$n_reads,
                                           y = elementMetadata(clusters$cluster_contigs)$n_reads,
                                           SIMPLIFY = FALSE))
   }
-  tmp_fun_2 <- function(i, j, k, d, g){
-    mapply(data.table, start = i, end = j, anno = k, QNAME = d, seq = g, SIMPLIFY = FALSE)
+
+
+  tmp_fun_2 <- function(...){
+    mapply(data.table, ..., SIMPLIFY = FALSE)
   }
-  combined_info <- mapply(tmp_fun_2, i = combined_start, j = combined_end, k = combined_anno, d = combined_grp, g = combined_seq, SIMPLIFY = FALSE)
-  long_info <- mapply(tmp_fun_2, i = long_anno$start, j = long_anno$end, k = long_anno$annotation, d = long_anno$grp, g = long_anno$seq, SIMPLIFY = FALSE)
+  combined_info <- do.call(function(...)mapply(tmp_fun_2, ...), combined_info)
+  long_info <- do.call(function(...)mapply(tmp_fun_2, ...), long_anno)
   long_nreads <- elementMetadata(clusters$long_contigs)$n_reads
   combined_nreads[lengths(long_nreads) > 0] <- long_nreads[lengths(long_nreads) > 0]
   combined_info[lengths(long_nreads) > 0] <- long_info[lengths(long_nreads) > 0]
   elementMetadata(clusters)$read_annotation <- combined_info
   elementMetadata(clusters)$nreads <- combined_nreads
-  table(lengths(clusters$read_annotation) == lengths(combined_nreads))
   clusters
 }
 
@@ -156,8 +161,9 @@ cigar_convert <- function(cigar_string, from, to)
 #' @importFrom S4Vectors split runValue runLength nchar
 #' @importFrom IRanges RleList CharacterList
 
+
 .annotate_reads <- function(seq, ref = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
-                            BPPARAM = MulticoreParam(workers = 3))
+                            BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
   # This function annotates chimeric sequences that consist of any multi-mapped sequences/non-reference sequence and any genomic regions.
   # It first mapped the bait (repeated regions/non-reference sequence), then the genomic regions by bwa
   # Written by Cheuk-Ting Law
@@ -240,15 +246,18 @@ cigar_convert <- function(cigar_string, from, to)
   combined_read_loc <- c(mapping1_read_loc, left_read_loc, right_read_loc, mid_read_loc, unmapped_read_loc)
   combined_read_loc <- split(combined_read_loc, factor(elementMetadata(combined_read_loc)$QNAME, levels = names(seq)))
   system.time(anno_out <- mapply(add_back_seq, x = seq, ir = combined_read_loc, SIMPLIFY = FALSE))
-  start <- lapply(anno_out, "[[", i = 1)
-  end <- lapply(anno_out, "[[", i = 2)
-  annotation <- lapply(anno_out, "[[", i = 3)
-  seq <- lapply(anno_out, "[[", i = 4)
-  grp <- factor(rep(names(start), lengths(start)), levels = names(start))
+  collected <- lapply(seq_along(anno_out[[1]]), function(x)lapply(anno_out, "[[", i = x))
+  grp <- factor(rep(names(collected[[1]]), lengths(collected[[1]])), levels = names(collected[[1]]))
+  collected <- lapply(collected, unlist, use.names = FALSE)
+  setDT(collected)
+  colnames(collected) <- c("start", "end", "annotation", "seq")
+  collected <- cbind(collected, QNAME = grp)
 
-  return(list(start = unlist(start, use.names = FALSE),
-              end = unlist(end, use.names = FALSE),
-              annotation = unlist(annotation, use.names = FALSE),
-              seq = unlist(seq, use.names = FALSE),
-              grp = grp))
+  # customised annotation
+  if(any(is.null(names(customised_annotation)))){
+    names(customised_annotation) <- paste0("customised_anno_", seq_along(customised_annotation))
+  }
+  extra <- lapply(customised_annotation, function(p)p(collected$annotation))
+  setDT(extra)
+  return(cbind(collected, extra))
 }
