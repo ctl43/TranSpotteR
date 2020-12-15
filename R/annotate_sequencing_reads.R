@@ -31,15 +31,8 @@ is_polyA <- function(x){
 }
 
 #' @export
-get_cigar_by_position <- function(cigar, start, end){
-  is_empty_out <- (end < start)
-  out <- mapply(function(x, y, z)rle_to_cigar(z[x:y]),x = start, y = end, z = GenomicAlignments::cigarToRleList(cigar))
-  out[!is_empty_out]
-}
-
-#' @export
 #' @importFrom IRanges setdiff Views
-add_back_seq <- function(x, ir = NULL){
+.add_back_seq <- function(x, ir = NULL){
   start <- start(ir)
   end <- end(ir)
   to_keep <- elementMetadata(ir)[c("annotation", "cigar")]
@@ -71,7 +64,7 @@ add_back_seq <- function(x, ir = NULL){
 
   cigar_start <- start - original_start + 1
   cigar_end <- cigar_start + end - start
-  to_keep$cigar <- get_cigar_by_position(to_keep$cigar, start = cigar_start, end = cigar_end)
+  to_keep$cigar <- cigarQNarrow(to_keep$cigar, start = cigar_start, end = cigar_end)
   start <- c(start, need_start)
   end <- c(end, need_end)
   idx <- order(start)
@@ -149,27 +142,10 @@ add_back_seq <- function(x, ir = NULL){
   clusters
 }
 
-#' @importFrom  GenomicAlignments cigarToRleList
-cigar_convert <- function(cigar_string, from, to)
-{
-  rle_list <-  cigarToRleList(cigar_string)
-  grp <- rep(seq_along(rle_list), lengths(rle_list))
-  rle_list <- unlist(rle_list)
-  rle_list[rle_list == from] <- to
-  rle_list <- split(rle_list, grp)
-
-  # Converting to cigar strings
-  rl <- runLength(rle_list)
-  rv <- runValue(rle_list)
-  grp <- rep(seq_along(rl), lengths(rl))
-  as.character(lapply(split(paste0(unlist(rl),unlist(rv)), grp), paste, collapse = ""))
-}
-
 #' @export
-#' @importFrom GenomicAlignments cigarWidthAlongQuerySpace cigarRangesAlongQuerySpace
+#' @importFrom GenomicAlignments cigarWidthAlongQuerySpace cigarRangesAlongQuerySpace cigarWidthAlongReferenceSpace
 #' @importFrom S4Vectors split runValue runLength nchar
 #' @importFrom IRanges RleList CharacterList
-
 
 .annotate_reads <- function(seq, ref = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
                             BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
@@ -194,10 +170,10 @@ cigar_convert <- function(cigar_string, from, to)
   aln_1 <- convertingHtoS(aln_1, unique_id = "QNAME")
 
   # Annotating the reads
-  aln_1$unified_cigar <- unify_cigar_strand(aln_1$CIGAR, flag = aln_1$FLAG, to = "+", along_query = TRUE)
+  aln_1$unified_cigar <- unify_cigar_strand(aln_1$CIGAR, flag = aln_1$FLAG, to = "+")
 
   # Getting clipped sequences
-  clipped_seq_1 <- get_unmapped_clipped_read(aln_1, include_middle_unmapped = TRUE) # need debug
+  clipped_seq_1 <- get_unmapped_clipped_read(aln_1, include_middle_unmapped = TRUE)
 
   # Mapping to genome
   middle <- clipped_seq_1$middle
@@ -208,29 +184,29 @@ cigar_convert <- function(cigar_string, from, to)
                     samtools_param = "-F 128 -F 4", BPPARAM = BPPARAM)
   aln_2 <- lapply(aln_2, convertingHtoS, unique_id = "QNAME")
   aln_2 <- lapply(aln_2, function(x)x[x$MAPQ > 10,])
-  aln_2 <- lapply(aln_2, function(x){x$unified_cigar <- unify_cigar_strand(x$CIGAR, flag = x$FLAG, to = "+", along_query = TRUE); x})
+  aln_2 <- lapply(aln_2, function(x){x$unified_cigar <- unify_cigar_strand(x$CIGAR, flag = x$FLAG, to = "+"); x})
 
   mapping_2 <- lapply(aln_2, sam2gr)
   middle_aln_2 <- bwa_alignment(unlist(middle$seq), call_bwa = "bwa mem ", samtools_param = "-F 128 -F 4")
   middle_aln_2 <- convertingHtoS(middle_aln_2, unique_id = "QNAME")
-  middle_aln_2$unified_cigar <- unify_cigar_strand(middle_aln_2$CIGAR, flag = middle_aln_2$FLAG, to = "+", along_query = TRUE)
+  middle_aln_2$unified_cigar <- unify_cigar_strand(middle_aln_2$CIGAR, flag = middle_aln_2$FLAG, to = "+")
 
   # Annotating the sequencing reads
   # Getting the location of the mapped location in the reads
   mapped_1 <- aln_1[!aln_1$CIGAR=="*",]
-  mapping1_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(mapped_1$unified_cigar, from = "I", to = "M"), ops = "M"))
+  mapping1_read_loc <- unlist(cigarRangesAlongQuerySpace(mapped_1$unified_cigar, ops = c("M", "I"), reduce.ranges = TRUE))
   elementMetadata(mapping1_read_loc)$annotation <- as.character(sam2gr(mapped_1))
   elementMetadata(mapping1_read_loc)$QNAME <- mapped_1$QNAME
   elementMetadata(mapping1_read_loc)$cigar <- mapped_1$unified_cigar
 
   # For left clipped reads
-  left_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$left$unified_cigar, from = "I", to = "M"), ops = "M"))
+  left_read_loc <- unlist(cigarRangesAlongQuerySpace(aln_2$left$unified_cigar, ops = c("M", "I"), reduce.ranges = TRUE))
   elementMetadata(left_read_loc)$QNAME <- aln_2$left$QNAME
   elementMetadata(left_read_loc)$annotation <- as.character(sam2gr(aln_2$left))
   elementMetadata(left_read_loc)$cigar <- aln_2$left$unified_cigar
 
   # For right clipped reads
-  right_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$right$unified_cigar, from = "I", to = "M"), ops = "M"))
+  right_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(aln_2$right$unified_cigar, ops = c("M", "I"), reduce.ranges = TRUE))
   right_clipped_len <- cigarWidthAlongQuerySpace(aln_2$right$unified_cigar)
   right_clipped_start_after <- nchar(seq[aln_2$right$QNAME]) - right_clipped_len
   right_read_loc <- IRanges(start = right_clipped_start_after + start(right_clipped_read_loc),
@@ -243,7 +219,7 @@ cigar_convert <- function(cigar_string, from, to)
   middle_grp <- sub("\\.[0-9]+$", "\\1", middle_aln_2$QNAME)
   mid_start <- unlist(middle$start[middle_grp])[middle_aln_2$QNAME]
   mid_end <- unlist(middle$end[middle_grp])[middle_aln_2$QNAME]
-  mid_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(middle_aln_2$unified_cigar, from = "I", to = "M"), ops = "M"))
+  mid_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(middle_aln_2$unified_cigar, ops = c("M", "I"), reduce.ranges = TRUE))
   mid_read_loc <- IRanges(start = mid_start + start(mid_clipped_read_loc) - 1,
                           end = mid_start + end(mid_clipped_read_loc) - 1 )
   elementMetadata(mid_read_loc)$annotation <- as.character(sam2gr(middle_aln_2))
@@ -251,7 +227,7 @@ cigar_convert <- function(cigar_string, from, to)
   elementMetadata(mid_read_loc)$cigar <- middle_aln_2$unified_cigar
 
   # For unmapped reads
-  unmapped_read_loc <- unlist(cigarRangesAlongQuerySpace(cigar_convert(aln_2$unmapped$unified_cigar, from = "I", to = "M"), ops = "M"))
+  unmapped_read_loc <- unlist(cigarRangesAlongQuerySpace(aln_2$unmapped$unified_cigar, ops = c("M", "I"), reduce.ranges = TRUE))
   elementMetadata(unmapped_read_loc)$QNAME <- aln_2$unmapped$QNAME
   elementMetadata(unmapped_read_loc)$annotation <- as.character(sam2gr(aln_2$unmapped))
   elementMetadata(unmapped_read_loc)$cigar <- aln_2$unmapped$unified_cigar
@@ -261,13 +237,23 @@ cigar_convert <- function(cigar_string, from, to)
   tmp_cigar <- sub("^[0-9]+S", "", elementMetadata(combined_read_loc)$cigar)
   elementMetadata(combined_read_loc)$cigar <- sub("[0-9]+S$", "", tmp_cigar)
   combined_read_loc <- split(combined_read_loc, factor(elementMetadata(combined_read_loc)$QNAME, levels = names(seq)))
-  system.time(anno_out <- mapply(add_back_seq, x = seq, ir = combined_read_loc, SIMPLIFY = FALSE))
+  system.time(anno_out <- mapply(.add_back_seq, x = seq, ir = combined_read_loc, SIMPLIFY = FALSE))
   collected <- lapply(seq_along(anno_out[[1]]), function(x)lapply(anno_out, "[[", i = x))
   grp <- factor(rep(names(collected[[1]]), lengths(collected[[1]])), levels = names(collected[[1]]))
   collected <- lapply(collected, unlist, use.names = FALSE)
   setDT(collected)
   colnames(collected) <- c("start", "end", "seq", "annotation", "cigar")
   collected <- cbind(collected, QNAME = grp)
+
+  # Correcting the annotation cos some read annotation are trimmed in add_back_seq
+  is_plus <- grepl(":\\+", collected$annotation)
+  plus_gr <- convert_character2gr(collected$annotation[is_plus])
+  start(plus_gr) <- end(plus_gr) - cigarWidthAlongReferenceSpace(collected$cigar[is_plus]) + 1
+  collected$annotation[is_plus] <- as.character(plus_gr)
+  is_minus <- grepl(":-", collected$annotation)
+  minus_gr <- convert_character2gr(collected$annotation[is_minus])
+  end(minus_gr) <- start(minus_gr) + cigarWidthAlongReferenceSpace(collected$cigar[is_minus]) - 1
+  collected$annotation[is_minus] <- as.character(minus_gr)
 
   # Customized annotation
   if(any(is.null(names(customised_annotation)))){
@@ -277,3 +263,4 @@ cigar_convert <- function(cigar_string, from, to)
   setDT(extra)
   return(cbind(collected, extra))
 }
+
