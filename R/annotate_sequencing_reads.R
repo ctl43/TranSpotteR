@@ -31,49 +31,49 @@ is_polyA <- function(x){
 }
 
 #' @export
-#' @importFrom IRanges setdiff Views
-.add_back_seq <- function(x, ir = NULL){
-  start <- start(ir)
-  end <- end(ir)
-  to_keep <- elementMetadata(ir)[c("annotation", "cigar")]
-  n_start <- length(start)
-  n_end <- length(end)
-  if(n_start == 0 | n_end == 0 ){
-    return(list(start = 1, end = nchar(x), seq = x, annotation = x, cigar = "*"))
-  }
-
-  if(n_start != n_end){
-    stop("The length of start and end are not the same.")
-  }
-  idx <- order(start)
-  original_start <- start <- start[idx]
-  original_end <- end <- end[idx]
-  to_keep <- to_keep[idx, ]
-
+.resolve_overlap <- function(start, end){
   # To deal with overlapping range
   # The one on the left hand side will occupy the place first, then the second one.
-  diff <- start[-1] - head(end, -1)
-  diff[diff <= 0] <- 1
-  start <- c(start[1], diff + head(end, -1))
-  need_start <- c(1, end + 1)
-  need_end <- c(start - 1, nchar(x))
-  selected_seq <- stringr::str_sub(x, start = need_start, end = need_end)
-  need_start <- need_start[selected_seq != ""]
-  need_end <- need_end[selected_seq != ""]
-  selected_seq <- selected_seq[selected_seq != ""]
-
-  cigar_start <- start - original_start + 1
-  cigar_end <- cigar_start + end - start
-  to_keep$cigar <- cigarQNarrow(to_keep$cigar, start = cigar_start, end = cigar_end)
-  start <- c(start, need_start)
-  end <- c(end, need_end)
   idx <- order(start)
   start <- start[idx]
   end <- end[idx]
-  to_keep <- list(annotation = c(to_keep$annotation, selected_seq)[idx],
-                  cigar = c(to_keep$cigar, rep("*", length(selected_seq)))[idx])
-  seq <- stringr::str_sub(x, start = start, end = end)
-  return(do.call(list, c(list(start = start, end = end, seq = seq), to_keep)))
+  diff <- start[-1] - head(end, -1)
+  diff[diff <= 0] <- 1
+  start <- c(start[1], diff + head(end, -1))
+  start <- start[order(idx)]
+  end <- end[order(idx)]
+  list(start = start, end = end)
+}
+
+#' @export
+#' @importFrom stringr 'str_sub'
+.add_back_seq <- function(x, occupied_info, QNAME){
+  if(nrow(occupied_info) == 0){
+    return(data.table(start = 1, end = nchar(x),
+                      width = nchar(x),
+                      annotation = x,
+                      QNAME = QNAME,
+                      cigar = "*",
+                      seq = x))
+  }
+  occupied_start <- occupied_info$start
+  occupied_end <- occupied_info$end
+  diff <- occupied_start[-1] - head(occupied_end, -1)
+  diff[diff <= 0] <- 1
+  occupied_start <- c(occupied_start[1], diff + head(occupied_end, -1))
+  need_start <- c(1, occupied_end + 1)
+  need_end <- c(occupied_start - 1, nchar(x))
+  selected_seq <- str_sub(x, start = need_start, end = need_end)
+  need_start <- need_start[selected_seq!=""]
+  need_end <- need_end[selected_seq!=""]
+  selected_seq <- selected_seq[selected_seq!=""]
+  selected <- data.table(start = need_start, end = need_end, width = need_end - need_start + 1,
+                         annotation = selected_seq,
+                         QNAME = rep(QNAME, length(selected_seq)),
+                         cigar = rep("*", length(selected_seq)))
+  occupied_info <- rbind(occupied_info, selected)
+  occupied_info$seq <- str_sub(x, start = occupied_info$start, end = occupied_info$end)
+  return(occupied_info)
 }
 
 #' @export
@@ -143,9 +143,10 @@ is_polyA <- function(x){
 }
 
 #' @export
-#' @importFrom GenomicAlignments cigarWidthAlongQuerySpace cigarRangesAlongQuerySpace cigarWidthAlongReferenceSpace
+#' @importFrom GenomicAlignments cigarWidthAlongQuerySpace cigarRangesAlongQuerySpace cigarWidthAlongReferenceSpace cigarQNarrow
 #' @importFrom S4Vectors split runValue runLength nchar
 #' @importFrom IRanges RleList CharacterList
+#' @importFrom BiocGenerics start end width
 
 .annotate_reads <- function(seq, ref = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
                             BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
@@ -232,35 +233,52 @@ is_polyA <- function(x){
   elementMetadata(unmapped_read_loc)$annotation <- as.character(sam2gr(aln_2$unmapped))
   elementMetadata(unmapped_read_loc)$cigar <- aln_2$unmapped$unified_cigar
 
-  # Combining all together
+  # Re-calculating data after resolving overlapped annotation
   combined_read_loc <- c(mapping1_read_loc, left_read_loc, right_read_loc, mid_read_loc, unmapped_read_loc)
-  tmp_cigar <- sub("^[0-9]+S", "", elementMetadata(combined_read_loc)$cigar)
-  elementMetadata(combined_read_loc)$cigar <- sub("[0-9]+S$", "", tmp_cigar)
-  combined_read_loc <- split(combined_read_loc, factor(elementMetadata(combined_read_loc)$QNAME, levels = names(seq)))
-  system.time(anno_out <- mapply(.add_back_seq, x = seq, ir = combined_read_loc, SIMPLIFY = FALSE))
-  collected <- lapply(seq_along(anno_out[[1]]), function(x)lapply(anno_out, "[[", i = x))
-  grp <- factor(rep(names(collected[[1]]), lengths(collected[[1]])), levels = names(collected[[1]]))
-  collected <- lapply(collected, unlist, use.names = FALSE)
-  setDT(collected)
-  colnames(collected) <- c("start", "end", "seq", "annotation", "cigar")
-  collected <- cbind(collected, QNAME = grp)
+  combined_read_loc <- data.table(data.frame(combined_read_loc))
+  read_origin <- factor(combined_read_loc$QNAME, levels = names(seq))
+  combined_read_loc <- split(combined_read_loc, read_origin)
+  resolved <- mapply(.resolve_overlap, start = lapply(combined_read_loc, "[[", i = "start"),
+                     end = lapply(combined_read_loc, "[[", i = "end"), SIMPLIFY = FALSE)
+  start <- lapply(resolved, "[[", i = "start")
+  end <- lapply(resolved, "[[", i = "end")
+  resolved <- data.table(start = unlist(start), end = unlist(end))
+  combined_read_loc <- do.call(rbind, combined_read_loc)
+  tmp_cigar <- sub("^[0-9]+S", "", combined_read_loc$cigar)
+  combined_read_loc$cigar <- sub("[0-9]+S$", "", tmp_cigar)
+  cigar_start <- resolved$start - combined_read_loc$start + 1
+  cigar_end <- cigar_start + resolved$end - resolved$start
+  combined_read_loc <- combined_read_loc[!resolved$start > resolved$end,] # in case, there is complete overlapping
+  resolved <- resolved[!resolved$start > resolved$end,]
+  combined_read_loc$cigar <- cigarQNarrow(combined_read_loc$cigar, start = cigar_start, end = cigar_end)
+  combined_read_loc$start <- resolved$start
+  combined_read_loc$end <- resolved$end
 
   # Correcting the annotation cos some read annotation are trimmed in add_back_seq
-  is_plus <- grepl(":\\+", collected$annotation)
-  plus_gr <- convert_character2gr(collected$annotation[is_plus])
-  start(plus_gr) <- end(plus_gr) - cigarWidthAlongReferenceSpace(collected$cigar[is_plus]) + 1
-  collected$annotation[is_plus] <- as.character(plus_gr)
-  is_minus <- grepl(":-", collected$annotation)
-  minus_gr <- convert_character2gr(collected$annotation[is_minus])
-  end(minus_gr) <- start(minus_gr) + cigarWidthAlongReferenceSpace(collected$cigar[is_minus]) - 1
-  collected$annotation[is_minus] <- as.character(minus_gr)
+  is_plus <- grepl(":\\+", combined_read_loc$annotation)
+  plus_gr <- convert_character2gr(combined_read_loc$annotation[is_plus])
+  start(plus_gr) <- end(plus_gr) - cigarWidthAlongReferenceSpace(combined_read_loc$cigar[is_plus]) + 1
+  combined_read_loc$annotation[is_plus] <- as.character(plus_gr)
+  is_minus <- grepl(":-", combined_read_loc$annotation)
+  minus_gr <- convert_character2gr(combined_read_loc$annotation[is_minus])
+  end(minus_gr) <- start(minus_gr) + cigarWidthAlongReferenceSpace(combined_read_loc$cigar[is_minus]) - 1
+  combined_read_loc$annotation[is_minus] <- as.character(minus_gr)
+
+  # Adding back those unannotation parts
+  combined_read_loc <- combined_read_loc[order(combined_read_loc$start),] #make sure reads are ordered within each read
+  combined_read_loc <- combined_read_loc[order(combined_read_loc$QNAME),]
+  combined_read_loc <- split(combined_read_loc, factor(combined_read_loc$QNAME, levels = names(seq)))
+  combined_read_loc <- mapply(.add_back_seq, x = seq, occupied_info = combined_read_loc, QNAME = names(combined_read_loc),SIMPLIFY = FALSE)
+  combined_read_loc <- data.table::rbindlist(combined_read_loc)
+  combined_read_loc <- combined_read_loc[order(combined_read_loc$start),] #make sure reads are ordered within each read
+  combined_read_loc <- combined_read_loc[order(factor(combined_read_loc$QNAME, levels = names(seq))),]
 
   # Customized annotation
   if(any(is.null(names(customised_annotation)))){
     names(customised_annotation) <- paste0("customised_anno_", seq_along(customised_annotation))
   }
-  extra <- lapply(customised_annotation, function(p)p(collected$annotation))
+  extra <- lapply(customised_annotation, function(p)p(combined_read_loc$annotation))
   setDT(extra)
-  return(cbind(collected, extra))
+  return(cbind(combined_read_loc, extra))
 }
 
