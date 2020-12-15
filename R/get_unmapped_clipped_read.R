@@ -4,7 +4,7 @@
 #' @importFrom GenomicAlignments cigarToRleList explodeCigarOpLengths
 #' @importFrom Biostrings DNAStringSet reverseComplement DNAStringSetList
 
-get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE){
+get_unmapped_clipped_read <- function(x, include_middle_unmapped=TRUE){
   x$QNAME <- as.character(x$QNAME)
 
   # Initialisation
@@ -43,7 +43,8 @@ get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE)
   seq[is_rc] <- reverseComplement(DNAStringSet(seq[is_rc]))
 
   # Unifying the strand of CIGAR string
-  unified_cigar <- unify_cigar_strand(cigar, from=strand, to="+", along_query = TRUE)
+  unified_cigar <- unify_cigar_strand(cigar, from = strand, to = "+")
+  unified_cigar <- gsub("[0-9]+D", "", unified_cigar)
 
   # Get clipped length
   left_len <- .get_clip_length(unified_cigar, start = TRUE)
@@ -53,12 +54,13 @@ get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE)
   seq <- unlist(unique(DNAStringSetList(split(seq, group))))
   len <- max(IntegerList(split(len, group)))
   l_clipped <- substr(seq, 1, left_len)
-  r_clipped <- substr(seq, len-right_len+1, len)
+  r_clipped <- substr(seq, len-right_len + 1, len)
   l_result[names(l_clipped)] <- l_clipped
   r_result[names(r_clipped)] <- r_clipped
   result <- list(unmapped = DNAStringSet(unmapped_result), left = DNAStringSet(l_result), right = DNAStringSet(r_result))
 
   if(include_middle_unmapped){
+    # The middle unmapped regions are defined after combining all mapping
     cigar_rle <- as.list(cigarToRleList(unified_cigar))
     cigar_rle <- base::split(cigar_rle, group)
     cigar_rle <- lapply(cigar_rle, .combined_rle)
@@ -70,49 +72,14 @@ get_unmapped_clipped_read <- function(x, SorH="S", include_middle_unmapped=TRUE)
     m_grp <- rep(names(combined_cigar), lengths(m_start_tmp))
     m_clipped <- substr(m_seq, unlist(m_start_tmp), unlist(m_end_tmp))
     m_clipped <- CharacterList(split(unname(m_clipped), m_grp))
-    m_clipped[any(m_clipped=="")] <- CharacterList(character(0))
+    m_clipped[any(m_clipped == "")] <- CharacterList(character(0))
     m_clipped <- lapply(m_clipped, function(x){names(x) <- seq_along(x); x})
     m_result[names(m_clipped)] <- CharacterList(m_clipped)
     m_start[names(m_start_tmp)] <- IntegerList(m_start_tmp)
     m_end[names(m_end_tmp)] <- IntegerList(m_end_tmp)
-    result <- list(clipped=result, middle=list(start=m_start,end=m_end, seq=m_result))
+    result <- list(clipped = result, middle = list(start=m_start,end=m_end, seq=m_result))
   }
   result
-}
-
-
-#' @export
-#' @importFrom S4Vectors runValue runLength aggregate
-#' @importFrom GenomicAlignments cigarToRleList
-
-unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query = FALSE){
-  out <- rep("", length(cigar))
-  is_unmapped <- cigar == "*"
-  if(all(is_unmapped)){
-    return(cigar)
-  }
-  cigar <- cigar[!is_unmapped]
-  flag <- flag[!is_unmapped]
-
-  if(!is.null(flag)){
-    from <- ifelse(bitwAnd(flag, 0x10), "-", "+")
-  }
-
-  cigar <- cigarToRleList(cigar)
-  rv <- runValue(cigar)
-  rl <- runLength(cigar)
-  if(along_query){
-    rl <- rl[rv!="D"]
-    rv <- rv[rv!="D"]
-  }
-  is_reversed <- from!=to
-  rv[is_reversed] <- lapply(rv[is_reversed], rev)
-  rl[is_reversed] <- lapply(rl[is_reversed], rev)
-  grp <- rep(seq_along(rv), lengths(rv))
-  converted <- aggregate(paste0(unlist(rl), unlist(rv)), list(grp), paste, collapse="")[,2]
-  out[!is_unmapped] <- converted
-  out[is_unmapped] <- "*"
-  out
 }
 
 #' @export
@@ -177,12 +144,4 @@ unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query = FALSE
   }
   out <- Rle(result, x[, 1])
   out
-}
-
-#' @export
-#' @importFrom S4Vectors runValue runLength
-rle_to_cigar <- function(x){
-  rl <- runLength(x)
-  rv <- runValue(x)
-  paste(paste0(rl, rv), collapse = "")
 }
