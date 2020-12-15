@@ -78,7 +78,7 @@ is_polyA <- function(x){
 
 #' @export
 #' @importFrom IRanges CharacterList
-.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
+.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3), customised_annotation = list(is_polyA=is_polyA))
   # A wrapper function to annotate clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
   # Written by Cheuk-Ting Law
@@ -93,19 +93,22 @@ is_polyA <- function(x){
   }
 
   # Can be sped up by combining all the reads together and only doing once.
-  cluster_anno <- .annotate_reads(unlist(clusters$cluster_contigs), BPPARAM = BPPARAM, customised_annotation = customised_annotation)
-  partner_anno <- .annotate_reads(unlist(clusters$partner_contigs), BPPARAM = BPPARAM, customised_annotation = customised_annotation)
-  long_anno <- .annotate_reads(unlist(clusters$long_contigs), BPPARAM = BPPARAM, customised_annotation = customised_annotation)
+  flat_cluster_contigs <- unlist(clusters$cluster_contigs)
+  flat_partner_contigs <- unlist(clusters$partner_contigs)
+  flat_long_contigs <- unlist(clusters$long_contigs)
+  cluster_anno <- .annotate_reads(flat_cluster_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
+  partner_anno <- .annotate_reads(flat_partner_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
+  long_anno <- .annotate_reads(flat_long_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
   cluster_grp <- factor(rep(seq_along(clusters$cluster_contigs), lengths(clusters$cluster_contigs)), levels = seq_along(clusters))
   partner_grp <- factor(rep(seq_along(clusters$partner_contigs), lengths(clusters$partner_contigs)), levels = seq_along(clusters))
   long_grp <- factor(rep(seq_along(clusters$long_contigs), lengths(clusters$long_contigs)), levels = seq_along(clusters))
 
   # Combining annotation
-  cluster_anno <- lapply(cluster_anno, split, f = cluster_anno$QNAME)
+  cluster_anno <- lapply(cluster_anno, split, f = factor(cluster_anno$QNAME, levels = names(flat_cluster_contigs)))
   cluster_anno <- lapply(cluster_anno, split, f = cluster_grp)
-  partner_anno <- lapply(partner_anno, split, f = partner_anno$QNAME)
+  partner_anno <- lapply(partner_anno, split, f = factor(partner_anno$QNAME, levels = names(flat_partner_contigs)))
   partner_anno <- lapply(partner_anno, split, f = partner_grp)
-  long_anno <- lapply(long_anno, split, f = long_anno$QNAME)
+  long_anno <- lapply(long_anno, split, f = factor(long_anno$QNAME, levels = names(flat_long_contigs)))
   long_anno <- lapply(long_anno, split, f = long_grp)
 
   tmp_fun <- function(x, y){mapply(c, rep(x, each = length(y)), rep(y, length(x)), SIMPLIFY = FALSE)}
@@ -113,7 +116,7 @@ is_polyA <- function(x){
   partner_anno$QNAME <- lapply(partner_anno$QNAME, function(z)lapply(z, as.character))
   long_anno$QNAME <- lapply(long_anno$QNAME, function(z)lapply(z, as.character))
 
-  if(strand=="+"){ # Creating all possible combination of read structures
+  if(strand == "+"){ # Creating all possible combination of read structures
     combined_info <- mapply(function(x,y)mapply(tmp_fun, x = x, y = y, SIMPLIFY = FALSE),
                             x = cluster_anno, y = partner_anno, SIMPLIFY = FALSE)
     combined_nreads <- IntegerList(mapply(function(x, y)rep(x, each = length(y)) + y,
@@ -146,7 +149,7 @@ is_polyA <- function(x){
 #' @importFrom GenomicAlignments cigarWidthAlongQuerySpace cigarRangesAlongQuerySpace cigarWidthAlongReferenceSpace cigarQNarrow
 #' @importFrom S4Vectors split runValue runLength nchar
 #' @importFrom IRanges RleList CharacterList
-#' @importFrom BiocGenerics start end width
+#' @importFrom BiocGenerics start end width 'start<-' 'end<-'
 
 .annotate_reads <- function(seq, ref = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
                             BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
