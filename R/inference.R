@@ -16,6 +16,11 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   grp <- rep(usable_clusters$group, lengths(usable_clusters$read_annotation))
   anno <- split(unlist(usable_clusters$read_annotation, recursive = FALSE, use.names = FALSE), grp)
   nreads <- split(unlist(usable_clusters$nreads, recursive = FALSE, use.names = FALSE), grp)
+  # selected <- 169
+  # for_parallel_y <- split(anno[selected], as.integer(cut(seq_along(anno)[selected], breaks = BPPARAM$workers)))
+  # for_parallel_n_reads <- split(nreads[selected], as.integer(cut(seq_along(nreads)[selected], breaks = BPPARAM$workers)))
+  # debug(.internal_inference)
+  # .internal_inference(y = anno[["3890"]], n_reads = nreads[["3890"]])
   for_parallel_y <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
   for_parallel_n_reads <- split(nreads, as.integer(cut(seq_along(nreads), breaks = BPPARAM$workers)))
   out <- bpmapply(function(a ,b){
@@ -44,6 +49,8 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 #' @importFrom S4Vectors elementMetadata 'elementMetadata<-' revElements
 #' @importFrom Biostrings DNAStringSetList letterFrequency complement
 #' @importFrom GenomeInfoDb seqnames
+#' @importFrom GenomicAlignments GAlignments mapToAlignments
+#' @importFrom stringr 'str_sub'
 
 .internal_inference <- function(y, n_reads = NULL, search_range = 1000){
   # Initialise a list to collect information
@@ -56,6 +63,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
                   "5p_insert_end" = NA,
                   "5p_insert_Orientation" = NA,
                   "5p_insert_break" = NA,
+                  "5p_duplicated_seq" = NA,
                   "3p_chr" = NA,
                   "3p_genomic_regions_start" = NA,
                   "3p_genomic_regions_end" = NA,
@@ -65,7 +73,9 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
                   "3p_insert_break" = NA,
                   "3p_insert_Orientation" = NA,
                   "3p_transducted_genomic_region" = NA,
-                  "has_polyA" = NA)
+                  "3p_duplicated_seq" = NA,
+                  "has_polyA" = NA,
+                  "overlapping_genomic_region" = NA)
   names(y) <- seq_along(y)
   y_copy <- y
   y <- CharacterList(lapply(y, "[[", i = "annotation"))
@@ -220,9 +230,6 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     end_partner <- sensible
   }
 
-  # Finding 3' transduction
-  # initiation
-
   if(end_direction == "left"){
     next_target_gr <- end_partner[[1]][-1]
     ending <- end_partner[[1]][1]
@@ -238,6 +245,10 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["3p_genomic_regions_end"]] <- end(ending)
     storage[["3p_genomic_break"]] <- end(ending)
   }
+
+
+  # Finding 3' transduction
+  # initiation
   next_is_not_insert <- seqnames(next_target_gr) != "Hot_L1_polyA"
   next_target <- next_target_gr[next_is_not_insert]
   middle_regions <- GRangesList()
@@ -257,7 +268,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     possible_middle <- possible_middle[lengths(strands) == 1]
 
     # Flipping the strand if the strand does not match but overlap
-    strand_not_match <- as.character(strand(ol_region)) != as.character(strand(next_target))
+    strand_not_match <- as.character(unique(strand(ol_region))) != as.character(strand(next_target))
     possible_middle[strand_not_match] <- .rc_granges(possible_middle[strand_not_match])
     middle_direction <- sapply(possible_middle, .determine_direction, z = next_target)
     sensible_middle <- possible_middle[middle_direction != start_direction & middle_direction != "undetermined"]
@@ -294,7 +305,11 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   insert_end <- c(middle_regions, end_partner)
   insert_end <- unlist(insert_end[seqnames(insert_end)=="Hot_L1_polyA"])
   if(length(insert_end) == 0){
-    insert_end <- GRanges("Hot_L1_polyA", IRanges(6022, 6050))
+    polyA_loc <- tail(which(elementMetadata(end_partner)$read_annotation[[1]]$is_polyA), n = 1)
+    polyA_seq <- elementMetadata(end_partner)$read_annotation[[1]]$seq[polyA_loc]
+    at_freq <- Biostrings::letterFrequency(BString(polyA_seq), letters = c("A", "T"))
+    inferred_strand <- ifelse(at_freq[1] > at_freq[2], "+", "-")
+    insert_end <- GRanges("Hot_L1_polyA", IRanges(6022, 6050), strand = inferred_strand)
   }
   insert_end <- insert_end[which.min(start(insert_end))]
 
@@ -317,6 +332,42 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     }
     result <- c(end_partner, middle_regions, starter_gr)
   }
+
+  # Getting TSD
+  read_anno <- elementMetadata(result)$read_annotation
+  left_anno <- read_anno[[1]][read_anno[[1]]$cigar!="*"][1]
+  right_anno <- tail(read_anno, n = 1)[[1]]
+  right_anno <- tail(right_anno[right_anno$cigar != "*", ],n = 1)
+  left_gr <- result[[1]][1]
+  right_gr <- tail(tail(result, n = 1)[[1]], n = 1)
+  lr_intersect <- GenomicRanges::intersect(left_gr, right_gr)
+  if(length(lr_intersect) != 0){
+    lr_gr <- c(left_gr, right_gr)
+    # Translating the overlapping regions to the read position
+    alignments <- GAlignments(seqnames(lr_gr),
+                              pos = start(lr_gr),
+                              cigar = c(left_anno$cigar, right_anno$cigar),
+                              strand = strand(lr_gr),
+                              names=c("left", "right"))
+    mapped_to_reads <- mapToAlignments(lr_intersect, alignments)
+    left_ok <- end(mapped_to_reads)[1] == cigarWidthAlongQuerySpace(left_anno$cigar)
+    right_ok <- start(mapped_to_reads)[2] == 1
+    if(all(c(left_ok, right_ok))){
+      genomic_overlap_seq <- str_sub(c(left_anno$seq, right_anno$seq), start = start(mapped_to_reads), end = end(mapped_to_reads))
+      storage[["overlapping_genomic_region"]] <- as.character(lr_intersect)
+      storage[["5p_duplicated_seq"]] <- genomic_overlap_seq[1]
+      storage[["3p_duplicated_seq"]] <- genomic_overlap_seq[2]
+    }
+
+    # left_cons_seq <- left_anno$seq[seq_len(head(grep("Hot_L1_polyA:", left_anno$annotation), 1) - 1)]
+    # left_cons_seq <- paste(left_cons_seq, collapse = "")
+    # where_polyA_end <- max(which(grepl("Hot_L1_polyA:", right_anno$annotation)|right_anno$is_polyA))
+    # right_cons_seq <- paste(right_anno$seq[(where_polyA_end + 1) : nrow(right_anno)], collapse = "")
+    # storage[["5p_cons_seq"]] <- left_cons_seq
+    # storage[["3p_cons_seq"]] <- right_cons_seq
+
+  }
+
   return(list(elementMetadata(result)[[1]], storage))
 }
 
