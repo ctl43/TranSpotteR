@@ -110,11 +110,7 @@ is_polyA <- function(x){
   partner_anno <- lapply(partner_anno, split, f = partner_grp)
   long_anno <- lapply(long_anno, split, f = factor(long_anno$QNAME, levels = names(flat_long_contigs)))
   long_anno <- lapply(long_anno, split, f = long_grp)
-
   tmp_fun <- function(x, y){mapply(c, rep(x, each = length(y)), rep(y, length(x)), SIMPLIFY = FALSE)}
-  cluster_anno$QNAME <- lapply(cluster_anno$QNAME, function(z)lapply(z, as.character))
-  partner_anno$QNAME <- lapply(partner_anno$QNAME, function(z)lapply(z, as.character))
-  long_anno$QNAME <- lapply(long_anno$QNAME, function(z)lapply(z, as.character))
 
   if(strand == "+"){ # Creating all possible combination of read structures
     combined_info <- mapply(function(x,y)mapply(tmp_fun, x = x, y = y, SIMPLIFY = FALSE),
@@ -277,11 +273,16 @@ is_polyA <- function(x){
   combined_read_loc <- combined_read_loc[order(factor(combined_read_loc$QNAME, levels = names(seq))),]
 
   # Customized annotation
-  if(any(is.null(names(customised_annotation)))){
-    names(customised_annotation) <- paste0("customised_anno_", seq_along(customised_annotation))
+  if(!is.null(customised_annotation)){
+    if(any(is.null(names(customised_annotation)))){
+      names(customised_annotation) <- paste0("customised_anno_", seq_along(customised_annotation))
+    }
+    extra <- lapply(customised_annotation, function(p)p(combined_read_loc$annotation))
+    setDT(extra)
+  }else{
+    extra <- NULL
   }
-  extra <- lapply(customised_annotation, function(p)p(combined_read_loc$annotation))
-  setDT(extra)
+
   return(cbind(combined_read_loc, extra))
 }
 
