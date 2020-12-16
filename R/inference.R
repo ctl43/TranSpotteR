@@ -16,7 +16,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   grp <- rep(usable_clusters$group, lengths(usable_clusters$read_annotation))
   anno <- split(unlist(usable_clusters$read_annotation, recursive = FALSE, use.names = FALSE), grp)
   nreads <- split(unlist(usable_clusters$nreads, recursive = FALSE, use.names = FALSE), grp)
-  # selected <- 169
+  # selected <- 1:100
   # for_parallel_y <- split(anno[selected], as.integer(cut(seq_along(anno)[selected], breaks = BPPARAM$workers)))
   # for_parallel_n_reads <- split(nreads[selected], as.integer(cut(seq_along(nreads)[selected], breaks = BPPARAM$workers)))
   # debug(.internal_inference)
@@ -47,7 +47,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 #' @importFrom GenomicRanges GRangesList
 #' @importFrom IRanges subsetByOverlaps CharacterList
 #' @importFrom S4Vectors elementMetadata 'elementMetadata<-' revElements
-#' @importFrom Biostrings DNAStringSetList letterFrequency complement
+#' @importFrom Biostrings DNAStringSetList letterFrequency complement BString
 #' @importFrom GenomeInfoDb seqnames
 #' @importFrom GenomicAlignments GAlignments mapToAlignments
 #' @importFrom stringr 'str_sub'
