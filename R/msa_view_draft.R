@@ -31,39 +31,39 @@ convert_gap_to_ref_view <- function(y){
   out[[1]] <- out[[1]][!is_dup]
   out[[2]] <- out[[2]][!is_dup]
   n_gap <- length(out[[1]])
-  
+
   gapped_aln <- integer()
   gap_info_counter <- 1L
-  
+
   n_loop <- nchar(original) + 1
-  
+
   for(i in seq_len(n_loop)){
-    
+
     cur_gap_before <- out$gap_before[gap_info_counter]
-    
+
     if(i == cur_gap_before){
       cur_gap_len <- out$gap_count[gap_info_counter]
-      
+
       if(i == ref_len + 1){ # if it is the right clipped len
         cur_n_gap <- seq_len(cur_gap_len)
       }else{
         cur_n_gap <- seq_len(cur_gap_len + 1)
       }
-      
+
       for(j in cur_n_gap){
         gapped_aln <- c(gapped_aln, i)
       }
-      
+
       if(gap_info_counter != n_gap){
         gap_info_counter <- gap_info_counter + 1L
       }
-      
+
     }else{
-      
+
       if(i != n_loop){
         gapped_aln <- c(gapped_aln, i)
       }
-      
+
     }
   }
   return(gapped_aln)
@@ -98,7 +98,7 @@ gap_finder <- function(y){
         }
       }
     }
-    
+
     #For the last bit in case it has clipped region at the end
     if(previous_is_gap){
       gap_pos_storage <- c(gap_pos_storage, gap_pos)
@@ -136,7 +136,7 @@ translate_to_extended <- function(cur_q, cur_q_aln, extended){
   extended_q
 }
 
-combined_aln <- function(raln, qaln){}
+combined_aln <- function(raln, qaln){
   extended <- convert_gap_to_ref_view(raln)
   translated_pos <- mapply(query_to_reference_position, raln = raln, qaln = qaln, SIMPLIFY = FALSE)
   translated <- mapply(function(x,y)translate_to_extended(x, y, extended = extended), x = translated_pos, y = qaln)
