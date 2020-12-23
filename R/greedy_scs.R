@@ -1,5 +1,5 @@
 #' @export
-#' @importFrom data.table data.table setDT
+#' @importFrom data.table data.table setDT setkeyv
 #' @importFrom Biostrings consensusMatrix DNAStringSet
 #' @importFrom uuid UUIDgenerate
 
@@ -21,7 +21,6 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE,
       return(consensus)
     }
   }
-  # vec <- sim_frag
   if(is.null(n_reads)){
     n_reads <- rep(1L, length(vec))
   }
@@ -72,14 +71,11 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE,
   non_solo_id <- grep("_", ass_id, value = TRUE)
   member_idx <- strsplit(non_solo_id, "_")
 
-  if(run_msa){
-    msa_out <- mapply(function(x,y)t_coffee(c(original_vec[x],y)),
-                      x = member_idx, y = vec[non_solo_id], SIMPLIFY = FALSE)
-    consensus <- sapply(msa_out, .process_msa)
-    names(msa_out) <- non_solo_id
-  }else{
-    consensus <- vec
-  }
+
+  pairwise_aln <- mapply(function(x, y) overlapper(rep(y, length(x)), original_vec[x]), x = member_idx, y = vec[non_solo_id], SIMPLIFY = FALSE)
+  msa_view_aln <- lapply(pairwise_aln, function(x)msa_view(x[["seq1_aln"]], x[["seq2_aln"]]))
+  consensus <- sapply(msa_view_aln, .process_msa)
+  names(msa_view_aln) <- non_solo_id
   names(consensus) <- non_solo_id
   consensus <- unlist(consensus)
   if(add_id & length(consensus) > 0L){
@@ -93,13 +89,13 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE,
     solo <- CharacterList(vec[solo_id])
     n_reads <- c(non_solo_n_reads, n_reads[solo_id])
     consensus <- c(consensus, solo)
-    msa_out <- c(msa_out, split(solo, solo_id))
+    msa_view_aln <- c(msa_view_aln, split(solo, solo_id))
   }else{
     n_reads <- non_solo_n_reads
   }
 
   if(msa_result){
-    return(list(consensus = consensus, msa = msa_out))
+    return(list(consensus = consensus, msa = msa_view_aln))
   }else{
     return(list(consensus, n_reads))
   }
