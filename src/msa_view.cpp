@@ -76,7 +76,7 @@ std::vector<int> cxx_ref_extension(Rcpp::List vecs){
 }
 
 // [[Rcpp::export]]
-Rcpp::StringVector combine_reference(std::vector<std::string> raln, std::vector<std::string> qaln){
+Rcpp::StringVector msa_view(std::vector<std::string> raln, std::vector<std::string> qaln){
   int n_aln = raln.size();
   Rcpp::List r_translated(n_aln);
   for(unsigned i = 0; i < n_aln; ++i){
