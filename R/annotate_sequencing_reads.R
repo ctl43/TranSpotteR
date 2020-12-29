@@ -10,7 +10,7 @@ annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L)
 {
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
-  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, customised_annotation = list(is_polyA = is_polyA))
+  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, customised_annotation = list(has_polyA = has_polyA))
   out <- c(out[[1]], out[[2]])
   names(out) <- seq_along(out)
   return(out)
@@ -20,13 +20,16 @@ annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L)
 ##################################
 #' @export
 #' @importFrom Biostrings BStringSet letterFrequency
-is_polyA <- function(x){
+has_polyA <- function(x){
   j <- letterFrequency(BStringSet(x), letters = c("A", "T", "G", 'C'))
   tot <- rowSums(j)
   a_prop <- j[, 1] / tot
   t_prop <- j[, 2] / tot
   out <- (a_prop > 0.8|t_prop > 0.8) & (nchar(x) > 5)
   out[grepl(":", x)] <- FALSE
+  converted <- convert_character2gr(x[grepl(":", x)])
+  anno_is_polyA <- seqnames(converted)=="Hot_L1_polyA" & end(converted) > 6000
+  out[grepl(":", x)] <- anno_is_polyA
   out
 }
 
@@ -78,7 +81,7 @@ is_polyA <- function(x){
 
 #' @export
 #' @importFrom IRanges CharacterList
-.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3), customised_annotation = list(is_polyA=is_polyA))
+.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3), customised_annotation = list(has_polyA = has_polyA))
   # A wrapper function to annotate clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
   # Written by Cheuk-Ting Law
