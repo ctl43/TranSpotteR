@@ -5,8 +5,7 @@
 
 #' @export
 greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE,
-                         return_no_assembly = FALSE, add_id = TRUE, min_len = 8L, min_pid = 85,
-                         run_msa = TRUE)
+                         return_no_assembly = FALSE, add_id = TRUE, min_len = 8L, min_pid = 85)
   # It assembles reads (getting the shortest common superstring problem, scs) by overlap-layout-consensus method.
   # The overlapping part, it simply chooses the pair with longest overlapping length, so called a greedy way.
   # Written by Cheuk-Ting Law
@@ -74,13 +73,17 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE,
 
   pairwise_aln <- mapply(function(x, y) overlapper(rep(y, length(x)), original_vec[x]), x = member_idx, y = vec[non_solo_id], SIMPLIFY = FALSE)
   msa_view_aln <- lapply(pairwise_aln, function(x)msa_view(x[["seq1_aln"]], x[["seq2_aln"]]))
-  consensus <- sapply(msa_view_aln, .process_msa)
+  consensus <- unlist(sapply(msa_view_aln, .process_msa))
   names(msa_view_aln) <- non_solo_id
-  names(consensus) <- non_solo_id
-  consensus <- unlist(consensus)
-  if(add_id & length(consensus) > 0L){
-    names(consensus) <- UUIDgenerate(n = length(consensus))
+
+  if(length(consensus) > 0L){
+    if(add_id ){
+      names(consensus) <- UUIDgenerate(n = length(consensus))
+    }else{
+      names(consensus) <- non_solo_id
+    }
   }
+
 
   # Computing the number of reads consisting the consensus sequence
   non_solo_n_reads <- unlist(lapply(member_idx, function(x)sum(n_reads[x])))
