@@ -19,8 +19,6 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   # selected <- 1:100
   # for_parallel_y <- split(anno[selected], as.integer(cut(seq_along(anno)[selected], breaks = BPPARAM$workers)))
   # for_parallel_n_reads <- split(nreads[selected], as.integer(cut(seq_along(nreads)[selected], breaks = BPPARAM$workers)))
-  # debug(.internal_inference)
-  # .internal_inference(y = anno[["3890"]], n_reads = nreads[["3890"]])
   for_parallel_y <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
   for_parallel_n_reads <- split(nreads, as.integer(cut(seq_along(nreads), breaks = BPPARAM$workers)))
   out <- bpmapply(function(a ,b){
@@ -33,11 +31,11 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   anno_out <- lapply(out, "[[", i = 1)
   df_out <- lapply(out, "[[", i = 2)
   col_names <- names(df_out[[1]])
-  df_out <- do.call(rbind, lapply(df_out, setDT))
-  df_out <- data.frame(df_out)
+  df_out <- data.frame(rbindlist(df_out))
   colnames(df_out) <- col_names
   anno_out <- List(anno_out)
   rownames(df_out) <- names(anno_out) <- names(anno)
+  df_out$idx <- rownames(df_out)
   list(anno_out[lengths(anno_out) > 0], df_out[lengths(anno_out) > 0, ])
 }
 
@@ -64,6 +62,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
                   "5p_insert_Orientation" = NA,
                   "5p_insert_break" = NA,
                   "5p_duplicated_seq" = NA,
+                  "5p_is_exact" = NA,
                   "3p_chr" = NA,
                   "3p_genomic_regions_start" = NA,
                   "3p_genomic_regions_end" = NA,
@@ -74,12 +73,14 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
                   "3p_insert_Orientation" = NA,
                   "3p_transducted_genomic_region" = NA,
                   "3p_duplicated_seq" = NA,
+                  "3p_is_exact" = NA,
                   "has_polyA" = NA,
                   "overlapping_genomic_region" = NA)
   names(y) <- seq_along(y)
   y_copy <- y
   y <- CharacterList(lapply(y, "[[", i = "annotation"))
-  y <- y[BiocGenerics::grepl(":", y)]
+  is_anno <- BiocGenerics::grepl(":", y)
+  y <- y[is_anno]
   x <- convert_character2gr(y)
   elementMetadata(x)$read_annotation <- y_copy
 
@@ -132,6 +133,9 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   # Selecting genomic ranges for searching next GRanges
   starter <- starter_gr[[1]][non_insert]
 
+  # For checking whether breakpoints are exact
+  start_anno <- elementMetadata(starter_gr)$read_annotation[[1]]
+
   if(start_direction == "left"){
     starter <- starter[1] # in case it has more than 1 starter
     insert_start <- starter_gr[[1]][!non_insert]
@@ -144,6 +148,13 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["5p_insert_end"]] <- end(insert_start)
     storage[["5p_insert_break"]] <- start(insert_start)
     storage[["5p_insert_Orientation"]] <- as.character(strand(insert_start))
+
+    # Checking whether breakpoints are exact
+    is_start <- which(start_anno$annotation==as.character(starter))
+    is_insert_in_start <- grep("Hot_L1_polyA", start_anno$annotation)
+    is_insert_in_start <- max(is_insert_in_start)
+    start_is_exact <- start_anno[is_start]$QNAME == start_anno[is_insert_in_start]$QNAME
+    storage[["5p_is_exact"]] <- start_is_exact
   }else{
     starter <- tail(starter, n = 1)
     insert_start <- starter_gr[[1]][!non_insert]
@@ -156,6 +167,13 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["3p_insert_end"]] <- end(insert_start)
     storage[["3p_insert_break"]] <- start(insert_start)
     storage[["3p_insert_Orientation"]] <- as.character(strand(insert_start))
+
+    # Checking whether breakpoints are exact
+    is_start <- which(start_anno$annotation==as.character(starter))
+    is_insert_in_start <- grep("Hot_L1_polyA", start_anno$annotation)
+    is_insert_in_start <- min(is_insert_in_start)
+    start_is_exact <- start_anno[is_start]$QNAME == start_anno[is_insert_in_start]$QNAME
+    storage[["3p_is_exact"]] <- start_is_exact
   }
 
   next_gr <- subsetByOverlaps(x[!is_min_l1], starter + search_range)#, ignore.strand=TRUE)
@@ -189,9 +207,9 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   }
 
   sensible <- next_gr[is_sensible]
-  has_polyA_seq <- LogicalList(lapply(elementMetadata(sensible)$read_annotation, "[[", i = "is_polyA"))
-  has_polyA <- any(has_polyA_seq)|any(end(sensible[seqnames(sensible) == "Hot_L1_polyA"]) > 6000)
-  storage[["has_polyA"]] <- any(has_polyA)
+  has_polyA <- LogicalList(lapply(elementMetadata(sensible)$read_annotation, "[[", i = "has_polyA"))
+  has_polyA <- any(any(has_polyA))
+  storage[["has_polyA"]] <- has_polyA
   sensible <- sensible[has_polyA]
 
   if(!any(has_polyA)){
@@ -230,6 +248,10 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     end_partner <- sensible
   }
 
+
+  end_anno <- elementMetadata(end_partner)$read_annotation[[1]]
+  is_insert_in_end <- which(end_anno$has_polyA)
+
   if(end_direction == "left"){
     next_target_gr <- end_partner[[1]][-1]
     ending <- end_partner[[1]][1]
@@ -237,13 +259,29 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["5p_genomic_regions_start"]] <- start(ending)
     storage[["5p_genomic_regions_end"]] <- end(ending)
     storage[["5p_genomic_break"]] <- start(ending)
+
+    # Checking whether the ending is exact
+    end_genomic <- as.character(ending)
+    is_end <- min(which(end_anno$annotation == end_genomic))
+    is_insert_in_end <- min(is_insert_in_end)
+    end_is_exact <- end_anno[is_end]$QNAME == end_anno[is_insert_in_end]$QNAME
+    storage[["5p_is_exact"]] <- end_is_exact
+
   }else{
+
     next_target_gr <- head(end_partner[[1]], -1)
     ending <- tail(end_partner[[1]], n = 1)
     storage[["3p_chr"]] <- as.character(seqnames(ending))
     storage[["3p_genomic_regions_start"]] <- start(ending)
     storage[["3p_genomic_regions_end"]] <- end(ending)
     storage[["3p_genomic_break"]] <- end(ending)
+
+    # Checking whether the ending is exact
+    end_genomic <- as.character(ending)
+    is_end <- which(end_anno$annotation == end_genomic)
+    is_insert_in_end <- max(is_insert_in_end)
+    end_is_exact <- end_anno[is_end]$QNAME == end_anno[is_insert_in_end]$QNAME
+    storage[["3p_is_exact"]] <- end_is_exact
   }
 
 
@@ -305,7 +343,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   insert_end <- c(middle_regions, end_partner)
   insert_end <- unlist(insert_end[seqnames(insert_end)=="Hot_L1_polyA"])
   if(length(insert_end) == 0){
-    polyA_loc <- tail(which(elementMetadata(end_partner)$read_annotation[[1]]$is_polyA), n = 1)
+    polyA_loc <- tail(which(elementMetadata(end_partner)$read_annotation[[1]]$has_polyA), n = 1)
     polyA_seq <- elementMetadata(end_partner)$read_annotation[[1]]$seq[polyA_loc]
     at_freq <- Biostrings::letterFrequency(BString(polyA_seq), letters = c("A", "T"))
     inferred_strand <- ifelse(at_freq[1] > at_freq[2], "+", "-")
@@ -358,14 +396,6 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
       storage[["5p_duplicated_seq"]] <- genomic_overlap_seq[1]
       storage[["3p_duplicated_seq"]] <- genomic_overlap_seq[2]
     }
-
-    # left_cons_seq <- left_anno$seq[seq_len(head(grep("Hot_L1_polyA:", left_anno$annotation), 1) - 1)]
-    # left_cons_seq <- paste(left_cons_seq, collapse = "")
-    # where_polyA_end <- max(which(grepl("Hot_L1_polyA:", right_anno$annotation)|right_anno$is_polyA))
-    # right_cons_seq <- paste(right_anno$seq[(where_polyA_end + 1) : nrow(right_anno)], collapse = "")
-    # storage[["5p_cons_seq"]] <- left_cons_seq
-    # storage[["3p_cons_seq"]] <- right_cons_seq
-
   }
 
   return(list(elementMetadata(result)[[1]], storage))
