@@ -16,9 +16,10 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   grp <- rep(usable_clusters$group, lengths(usable_clusters$read_annotation))
   anno <- split(unlist(usable_clusters$read_annotation, recursive = FALSE, use.names = FALSE), grp)
   nreads <- split(unlist(usable_clusters$nreads, recursive = FALSE, use.names = FALSE), grp)
-  # selected <- 1:100
+  # selected <- 526
   # for_parallel_y <- split(anno[selected], as.integer(cut(seq_along(anno)[selected], breaks = BPPARAM$workers)))
   # for_parallel_n_reads <- split(nreads[selected], as.integer(cut(seq_along(nreads)[selected], breaks = BPPARAM$workers)))
+  # .internal_inference(unlist(anno[selected], recursive = FALSE))
   for_parallel_y <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
   for_parallel_n_reads <- split(nreads, as.integer(cut(seq_along(nreads), breaks = BPPARAM$workers)))
   out <- bpmapply(function(a ,b){
@@ -95,7 +96,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   has_insert <- any(is_insert)
 
   if(sum(has_insert) == 0){
-    message("No insert regions is found")
+    # message("No insert regions is found")
     return(list(list(data.table()), storage))
   }
 
@@ -202,18 +203,18 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   is_sensible <- next_direction != start_direction & next_direction != "undetermined"
 
   if(sum(is_sensible)==0){
-    message("no sensible end")
+    # message("no sensible end")
     return(list(y_copy[is_min_l1], storage))
   }
 
   sensible <- next_gr[is_sensible]
   has_polyA <- LogicalList(lapply(elementMetadata(sensible)$read_annotation, "[[", i = "has_polyA"))
-  has_polyA <- any(any(has_polyA))
-  storage[["has_polyA"]] <- has_polyA
+  has_polyA <- any(has_polyA)
   sensible <- sensible[has_polyA]
+  storage[["has_polyA"]] <- any(has_polyA)
 
   if(!any(has_polyA)){
-    message("no sensible end (no end with polyA)")
+    # message("no sensible end (no end with polyA)")
     return(list(y_copy[is_min_l1], storage))
   }
 
