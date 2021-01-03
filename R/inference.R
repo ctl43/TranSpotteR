@@ -16,10 +16,10 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   grp <- rep(usable_clusters$group, lengths(usable_clusters$read_annotation))
   anno <- split(unlist(usable_clusters$read_annotation, recursive = FALSE, use.names = FALSE), grp)
   nreads <- split(unlist(usable_clusters$nreads, recursive = FALSE, use.names = FALSE), grp)
-  # selected <- 526
+  selected <- 1
   # for_parallel_y <- split(anno[selected], as.integer(cut(seq_along(anno)[selected], breaks = BPPARAM$workers)))
   # for_parallel_n_reads <- split(nreads[selected], as.integer(cut(seq_along(nreads)[selected], breaks = BPPARAM$workers)))
-  # .internal_inference(unlist(anno[selected], recursive = FALSE))
+  .internal_inference(unlist(anno[selected], recursive = FALSE))
   for_parallel_y <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
   for_parallel_n_reads <- split(nreads, as.integer(cut(seq_along(nreads), breaks = BPPARAM$workers)))
   out <- bpmapply(function(a ,b){
@@ -27,7 +27,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
            n_reads = b,
            SIMPLIFY = FALSE)
     }, a = for_parallel_y, b = for_parallel_n_reads,
-    BPPARAM = BPPARAM) # Need a better way to store the number of consisted reads
+    BPPARAM = BPPARAM, SIMPLIFY = FALSE) # Need a better way to store the number of consisted reads
   out <- unlist(out, recursive = FALSE, use.names = FALSE)
   anno_out <- lapply(out, "[[", i = 1)
   df_out <- lapply(out, "[[", i = 2)
@@ -54,16 +54,17 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 .internal_inference <- function(y, n_reads = NULL, search_range = 1000){
   # Initialise a list to collect information
   storage <- list("5p_chr" = NA,
-                  "5p_transducted_genomic_region" = NA,
                   "5p_genomic_regions_start" = NA,
                   "5p_genomic_regions_end" = NA,
                   "5p_genomic_break" = NA,
                   "5p_insert_start" = NA,
                   "5p_insert_end" = NA,
-                  "5p_insert_Orientation" = NA,
+                  "5p_insert_orientation" = NA,
+                  "5p_transduced_genomic_region" = NA,
                   "5p_insert_break" = NA,
                   "5p_duplicated_seq" = NA,
                   "5p_is_exact" = NA,
+                  "5p_n_reads" = NA,
                   "3p_chr" = NA,
                   "3p_genomic_regions_start" = NA,
                   "3p_genomic_regions_end" = NA,
@@ -71,10 +72,11 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
                   "3p_insert_start" = NA,
                   "3p_insert_end" = NA,
                   "3p_insert_break" = NA,
-                  "3p_insert_Orientation" = NA,
-                  "3p_transducted_genomic_region" = NA,
+                  "3p_insert_orientation" = NA,
+                  "3p_transduced_genomic_region" = NA,
                   "3p_duplicated_seq" = NA,
                   "3p_is_exact" = NA,
+                  "3p_n_reads" = NA,
                   "has_polyA" = NA,
                   "overlapping_genomic_region" = NA)
   names(y) <- seq_along(y)
@@ -97,7 +99,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   if(sum(has_insert) == 0){
     # message("No insert regions is found")
-    return(list(list(data.table()), storage))
+    return(list(GRangesList(), storage))
   }
 
   # Choosing the one with the earliest start site
@@ -108,7 +110,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   # If no meaning anchor is found
   if(sum(is_min_l1) == 0 | min_l1 > 6000){
-    return(list(list(data.table()), storage))
+    return(list(GRangesList(), storage))
   }
 
   if(length(which(is_min_l1)) > 1){
@@ -128,7 +130,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   if(any(c(left_match, right_match))){
     start_direction <- ifelse(left_match, "left", "right")
   }else{
-    return(list(list(data.table()), storage))
+    return(list(GRangesList(), storage))
   }
 
   # Selecting genomic ranges for searching next GRanges
@@ -148,7 +150,8 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["5p_insert_start"]] <- start(insert_start)
     storage[["5p_insert_end"]] <- end(insert_start)
     storage[["5p_insert_break"]] <- start(insert_start)
-    storage[["5p_insert_Orientation"]] <- as.character(strand(insert_start))
+    storage[["5p_insert_orientation"]] <- as.character(strand(insert_start))
+    storage[["5p_n_reads"]] <- elementMetadata(starter_gr)[["n_reads"]]
 
     # Checking whether breakpoints are exact
     is_start <- which(start_anno$annotation==as.character(starter))
@@ -163,11 +166,12 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["3p_chr"]] <- as.character(seqnames(starter))
     storage[["3p_genomic_regions_start"]] <- start(starter)
     storage[["3p_genomic_regions_end"]] <- end(starter)
-    storage[["3p_genomic_break"]] <- end(starter)
+    storage[["3p_genomic_break"]] <- start(starter)
     storage[["3p_insert_start"]] <- start(insert_start)
     storage[["3p_insert_end"]] <- end(insert_start)
     storage[["3p_insert_break"]] <- start(insert_start)
-    storage[["3p_insert_Orientation"]] <- as.character(strand(insert_start))
+    storage[["3p_insert_orientation"]] <- as.character(strand(insert_start))
+    storage[["3p_n_reads"]] <- elementMetadata(starter_gr)[["n_reads"]]
 
     # Checking whether breakpoints are exact
     is_start <- which(start_anno$annotation==as.character(starter))
@@ -204,7 +208,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   if(sum(is_sensible)==0){
     # message("no sensible end")
-    return(list(y_copy[is_min_l1], storage))
+    return(list(x[is_min_l1], storage))
   }
 
   sensible <- next_gr[is_sensible]
@@ -215,7 +219,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 
   if(!any(has_polyA)){
     # message("no sensible end (no end with polyA)")
-    return(list(y_copy[is_min_l1], storage))
+    return(list(x[is_min_l1], storage))
   }
 
   end_direction <- ifelse(start_direction == "left", "right", "left")
@@ -259,7 +263,8 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["5p_chr"]] <- as.character(seqnames(ending))
     storage[["5p_genomic_regions_start"]] <- start(ending)
     storage[["5p_genomic_regions_end"]] <- end(ending)
-    storage[["5p_genomic_break"]] <- start(ending)
+    storage[["5p_genomic_break"]] <- end(ending)
+    storage[["5p_n_reads"]] <- elementMetadata(end_partner)[["n_reads"]]
 
     # Checking whether the ending is exact
     end_genomic <- as.character(ending)
@@ -275,7 +280,8 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["3p_chr"]] <- as.character(seqnames(ending))
     storage[["3p_genomic_regions_start"]] <- start(ending)
     storage[["3p_genomic_regions_end"]] <- end(ending)
-    storage[["3p_genomic_break"]] <- end(ending)
+    storage[["3p_genomic_break"]] <- start(ending)
+    storage[["3p_n_reads"]] <- elementMetadata(end_partner)[["n_reads"]]
 
     # Checking whether the ending is exact
     end_genomic <- as.character(ending)
@@ -307,7 +313,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     possible_middle <- possible_middle[lengths(strands) == 1]
 
     # Flipping the strand if the strand does not match but overlap
-    strand_not_match <- as.character(unique(strand(ol_region))) != as.character(strand(next_target))
+    strand_not_match <- as.character(unique(strand(ol_region)))[1] != as.character(strand(next_target))[1]
     possible_middle[strand_not_match] <- .rc_granges(possible_middle[strand_not_match])
     middle_direction <- sapply(possible_middle, .determine_direction, z = next_target)
     sensible_middle <- possible_middle[middle_direction != start_direction & middle_direction != "undetermined"]
@@ -356,18 +362,18 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["3p_insert_start"]] <- start(insert_end)
     storage[["3p_insert_end"]] <- end(insert_end)
     storage[["3p_insert_break"]] <- end(insert_end)
-    storage[["3p_insert_Orientation"]] <- as.character(strand(insert_end))
+    storage[["3p_insert_orientation"]] <- as.character(strand(insert_end))
     if(length(transduced_regions)!=0){
-      storage[["3p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
+      storage[["3p_transduced_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
     }
     result <- c(starter_gr, middle_regions, end_partner)
   }else{
     storage[["5p_insert_start"]] <- start(insert_end)
     storage[["5p_insert_end"]] <- end(insert_end)
     storage[["5p_insert_break"]] <- end(insert_end)
-    storage[["5p_insert_Orientation"]] <- as.character(strand(insert_end))
+    storage[["5p_insert_orientation"]] <- as.character(strand(insert_end))
     if(length(transduced_regions)!=0){
-      storage[["5p_transducted_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
+      storage[["5p_transduced_genomic_region"]] <- paste(as.character(range(transduced_regions)), collapse = ",")
     }
     result <- c(end_partner, middle_regions, starter_gr)
   }
@@ -399,7 +405,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     }
   }
 
-  return(list(elementMetadata(result)[[1]], storage))
+  return(list(result, storage))
 }
 
 # Require testthat
