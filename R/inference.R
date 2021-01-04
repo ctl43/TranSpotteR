@@ -6,20 +6,18 @@
 #' @importFrom data.table setDT
 
 line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
-  usable_clusters <- clusters[elementMetadata(clusters)$is_usable]
   if(length(usable_clusters) == 0){
     return(NULL)
   }
 
   # Tidying up the elementMetadata after groupping
-  nreads <- usable_clusters$nreads
-  grp <- rep(usable_clusters$group, lengths(usable_clusters$read_annotation))
-  anno <- split(unlist(usable_clusters$read_annotation, recursive = FALSE, use.names = FALSE), grp)
-  nreads <- split(unlist(usable_clusters$nreads, recursive = FALSE, use.names = FALSE), grp)
-  selected <- 1
+  grp <- factor(clusters$group, levels = unique(clusters$group))
+  anno <- split(clusters$contig_detail, grp)
+  nreads <- split(clusters$nreads, grp)
+  # selected <- 1
   # for_parallel_y <- split(anno[selected], as.integer(cut(seq_along(anno)[selected], breaks = BPPARAM$workers)))
   # for_parallel_n_reads <- split(nreads[selected], as.integer(cut(seq_along(nreads)[selected], breaks = BPPARAM$workers)))
-  .internal_inference(unlist(anno[selected], recursive = FALSE))
+  # .internal_inference(unlist(anno[selected], recursive = FALSE))
   for_parallel_y <- split(anno, as.integer(cut(seq_along(anno), breaks = BPPARAM$workers)))
   for_parallel_n_reads <- split(nreads, as.integer(cut(seq_along(nreads), breaks = BPPARAM$workers)))
   out <- bpmapply(function(a ,b){
@@ -32,11 +30,11 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   anno_out <- lapply(out, "[[", i = 1)
   df_out <- lapply(out, "[[", i = 2)
   col_names <- names(df_out[[1]])
-  df_out <- data.frame(rbindlist(df_out))
+  df_out <- rbindlist(df_out)
   colnames(df_out) <- col_names
   anno_out <- List(anno_out)
-  rownames(df_out) <- names(anno_out) <- names(anno)
-  df_out$idx <- rownames(df_out)
+  names(anno_out) <- names(anno)
+  df_out$idx <- names(anno)
   list(anno_out[lengths(anno_out) > 0], df_out[lengths(anno_out) > 0, ])
 }
 

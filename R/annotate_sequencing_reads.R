@@ -11,8 +11,8 @@ annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L)
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
   out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, customised_annotation = list(has_polyA = has_polyA))
-  out <- c(out[[1]], out[[2]])
-  names(out) <- seq_along(out)
+  out <- rbind(out[[1]], out[[2]])
+  names(out) <- c("contig_detail", "nreads", "cluster_origin")
   return(out)
 }
 
@@ -79,6 +79,7 @@ has_polyA <- function(x){
   return(occupied_info)
 }
 
+
 #' @export
 #' @importFrom IRanges CharacterList
 .internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3), customised_annotation = list(has_polyA = has_polyA))
@@ -102,9 +103,9 @@ has_polyA <- function(x){
   cluster_anno <- .annotate_reads(flat_cluster_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
   partner_anno <- .annotate_reads(flat_partner_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
   long_anno <- .annotate_reads(flat_long_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
-  cluster_grp <- factor(rep(seq_along(clusters$cluster_contigs), lengths(clusters$cluster_contigs)), levels = seq_along(clusters))
-  partner_grp <- factor(rep(seq_along(clusters$partner_contigs), lengths(clusters$partner_contigs)), levels = seq_along(clusters))
-  long_grp <- factor(rep(seq_along(clusters$long_contigs), lengths(clusters$long_contigs)), levels = seq_along(clusters))
+  cluster_grp <- factor(rep(names(clusters), lengths(clusters$cluster_contigs)), levels = names(clusters))
+  partner_grp <- factor(rep(names(clusters), lengths(clusters$partner_contigs)), levels = names(clusters))
+  long_grp <- factor(rep(names(clusters), lengths(clusters$long_contigs)), levels = names(clusters))
 
   # Combining annotation
   cluster_anno <- lapply(cluster_anno, split, f = factor(cluster_anno$QNAME, levels = names(flat_cluster_contigs)))
@@ -119,9 +120,9 @@ has_polyA <- function(x){
     combined_info <- mapply(function(x,y)mapply(tmp_fun, x = x, y = y, SIMPLIFY = FALSE),
                             x = cluster_anno, y = partner_anno, SIMPLIFY = FALSE)
     combined_nreads <- IntegerList(mapply(function(x, y)rep(x, each = length(y)) + y,
-                                           x = elementMetadata(clusters$cluster_contigs)$n_reads,
-                                           y = elementMetadata(clusters$partner_contigs)$n_reads,
-                                           SIMPLIFY = FALSE))
+                                          x = elementMetadata(clusters$cluster_contigs)$n_reads,
+                                          y = elementMetadata(clusters$partner_contigs)$n_reads,
+                                          SIMPLIFY = FALSE))
   }else{
     combined_info <- mapply(function(x,y)mapply(tmp_fun, x = x, y = y, SIMPLIFY = FALSE),
                             x = partner_anno, y = cluster_anno, SIMPLIFY = FALSE)
@@ -139,9 +140,12 @@ has_polyA <- function(x){
   long_nreads <- elementMetadata(clusters$long_contigs)$n_reads
   combined_nreads[lengths(long_nreads) > 0] <- long_nreads[lengths(long_nreads) > 0]
   combined_info[lengths(long_nreads) > 0] <- long_info[lengths(long_nreads) > 0]
-  elementMetadata(clusters)$read_annotation <- combined_info
-  elementMetadata(clusters)$nreads <- combined_nreads
-  clusters
+
+  combined_info_grp <- rep(names(combined_info), lengths(combined_info))
+  flat_combined_info <- unlist(combined_info, recursive = FALSE, use.names = FALSE)
+  flat_combined_nreads <- unlist(combined_nreads)
+  combined_anno_dt <- data.table(flat_combined_info, flat_combined_nreads, combined_info_grp)
+  return(combined_anno_dt)
 }
 
 #' @export
@@ -213,7 +217,7 @@ has_polyA <- function(x){
   right_clipped_len <- cigarWidthAlongQuerySpace(aln_2$right$unified_cigar)
   right_clipped_start_after <- nchar(seq[aln_2$right$QNAME]) - right_clipped_len
   right_read_loc <- IRanges(start = right_clipped_start_after + start(right_clipped_read_loc),
-                               end = right_clipped_start_after + end(right_clipped_read_loc))
+                            end = right_clipped_start_after + end(right_clipped_read_loc))
   elementMetadata(right_read_loc)$QNAME <- aln_2$right$QNAME
   elementMetadata(right_read_loc)$annotation <- as.character(sam2gr(aln_2$right))
   elementMetadata(right_read_loc)$cigar <- aln_2$right$unified_cigar
@@ -288,4 +292,3 @@ has_polyA <- function(x){
 
   return(cbind(combined_read_loc, extra))
 }
-
