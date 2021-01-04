@@ -6,7 +6,7 @@
 #' @importFrom data.table setDT
 
 line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
-  if(length(usable_clusters) == 0){
+  if(length(clusters) == 0){
     return(NULL)
   }
 
