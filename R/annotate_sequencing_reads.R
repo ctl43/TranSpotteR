@@ -4,13 +4,13 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 
 # A wrapper for read annotation
-annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L))
+annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L), min_len = NULL)
   # A wrapper function process both plus and minus stranded read clusters.
   # Written by Cheuk-Ting Law
 {
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
-  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, customised_annotation = list(has_polyA = has_polyA))
+  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, customised_annotation = list(has_polyA = has_polyA), min_len = min_len)
   out <- rbind(out[[1]], out[[2]])
   names(out) <- c("contig_detail", "nreads", "cluster_origin")
   return(out)
@@ -82,7 +82,8 @@ has_polyA <- function(x){
 
 #' @export
 #' @importFrom IRanges CharacterList
-.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3), customised_annotation = list(has_polyA = has_polyA))
+.internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3),
+                                  customised_annotation = list(has_polyA = has_polyA), min_len = 100)
   # A wrapper function to annotate clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
   # Written by Cheuk-Ting Law
@@ -94,6 +95,12 @@ has_polyA <- function(x){
 
   if(length(strand) == 0){
     return(NULL)
+  }
+
+  if(!is.null(min_len)){
+    clusters$cluster_contigs <- clusters$cluster_contigs[nchar(clusters$cluster_contigs) > min_len]
+    clusters$partner_contigs <- clusters$partner_contigs[nchar(clusters$partner_contigs) > min_len]
+    clusters$long_contigs <- clusters$long_contigs[nchar(clusters$long_contigs) > min_len]
   }
 
   # Can be sped up by combining all the reads together and only doing once.
