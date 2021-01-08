@@ -3,7 +3,7 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 #' @importFrom data.table rbindlist data.table
 
-extract_info_reads <- function(bam, readin = 2.5E6, tmp_dir, mc.cores = 12L, out_dir, ){
+extract_info_reads <- function(bam, readin = 2.5E6, tmp_dir, mc.cores = 12L, out_dir){
   # bam <- "/home/ctlaw/synology/HKU_88/bwa_output/HKU_liver_43/HKU_liver_tumor_43/ERR093456.bam"
   # tmp_dir <- "/home/ctlaw/dicky/analysis/Enhancer_hijack/temp"
   tag <- gsub(".bam", "", basename(bam))
