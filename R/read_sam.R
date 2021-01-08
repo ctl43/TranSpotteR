@@ -1,46 +1,66 @@
 #' @export
-#' @importFrom data.table fread
-#' @importFrom GenomeInfoDb Seqinfo
+#' @importFrom vroom vroom
 
-get_headers <- function(sam, return_seqinfo = FALSE, n_rows = 100){
-  # Getting headers
-  skip <- 0
-  last <- 1
-  while(length(last) > 0){
-    keep <- last
-    readin <- fread(sam, sep = "", skip = skip, nrows = n_rows)[[1]]
-    last <- tail(grep("^@", readin), 1)
-    skip <- skip + n_rows
+get_header <- function(sam){
+  N <- 1L
+  curfile <- file(sam, open="r")
+  collected <- c()
+  repeat {
+    curline <- readLines(curfile, n=1)
+    if (!grepl("^@", curline)) {
+      break
+    }
+    if (grepl("^@SQ", curline)) {
+      collected[N] <- curline
+    }
+    N <- N + 1L
   }
-  nline <- skip - (n_rows*2) + keep
-  headers <- fread(sam, sep = "", skip = 0, nrows = nline)[[1]]
-  seqinfo <- fread(text = grep("^@SQ", headers, value=TRUE), header = FALSE)[,2:3]
-  chr <- sub("^SN:", "", seqinfo[[1]])
-  chr_size <- as.integer(sub("^LN:", "", seqinfo[[2]]))
-  if(return_seqinfo){
-    seqinfo <- Seqinfo(chr, chr_size)
-    return(list(seqinfo, nline = nline))
-  }else{
-    return(nline)
-  }
+  collected <- paste(collected, collapse = "\n")
+  collected <- fread(collected,header = FALSE)
+  collected$V2 <- sub("^SN:","", collected$V2)
+  collected$V3 <- as.integer(sub("^LN:","", collected$V3))
+  collected <- split(collected$V3, f=collected$V2)
+  close(curfile)
+  return(list(nheader = N - 1L, seq_info = unlist(collected)))
 }
 
 #' @export
-read_sam <- function(sam_file, start, end, select = c(1:6, 10), nheader = NULL, nfields = 30){
-  if(is.null(nheader)){
-    nheaders <- get_headers(sam_file)
+read_sam <- function(sam, start = 1, end = NULL, select = c(1:6, 10),
+                     nheader = NULL, header = NULL, return_header = FALSE){
+  if(!(all(select%in%1:11))){
+    stop()
   }
-  skip <- start + nheaders - 1
-  nrow <- end - start + 1
-  sam <- fread(sam_file, sep = "", skip = skip, nrow = nrow, select = list("character" = 1))[[1]]
-  # nfields <- max(lengths(strsplit(sam, "\t")), na.rm = TRUE)
-  col_names <- c("QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "SEQUENCE")
-  if(is.null(nfields)){
-    nfields <- max(count.fields(sam_file, skip = skip, sep = "\t", comment.char = "", quote = ""), na.rm = TRUE)
+
+  if(is.null(nheader)|return_header){
+    header <- get_header(sam)
+    nheader <- header$nheader
   }
-  # colClasses <- c("character","integer","character", "integer", "integer", "character","character")
-  out <- fread(text = c(paste(1 : nfields, collapse = "\t"), sam),
-               header = TRUE, fill = TRUE, select = select, nThread = 1)#, colClasses = colClasses)#, skip = skip, nrow = nrow)
-  names(out) <- col_names
-  out
+
+  sam_col_types  <- list(X1="c", X2="i", X3="c", X4="i", X5="i",
+                         X6="c", X7="c", X8="i", X9="i",X10="c",
+                         X11="c")
+  col_types <- sam_col_types[select]
+
+  skip <- nheader + start - 1
+  if(is.null(end)){
+    system.time(sam_readin <- vroom(sam, delim = "\t", skip = skip,
+                                    col_names = FALSE,
+                                    col_types = col_types,
+                                    col_select = select,
+                                    escape_double = FALSE, quote = ""))
+  }else{
+    nrow <- end - start + 1
+    system.time(sam_readin <- vroom(sam, delim = "\t", skip = skip,
+                                    col_names = FALSE, n_max = nrow,
+                                    col_types = col_types,
+                                    col_select = select,
+                                    escape_double = FALSE, quote = ""))
+  }
+  sam_col_names <- c("QNAME","FLAG","RNAME","POS","MAPQ","CIGAR", "RNEXT", "PNEXT", "TLEN", "SEQ", "QUAL")
+  colnames(sam_readin) <- sam_col_names[select]
+  if(return_header){
+    list(header = header$seq_info, mapping = sam_readin)
+  }else{
+    sam_readin
+  }
 }
