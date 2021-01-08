@@ -1,6 +1,4 @@
 #' @export
-#' @importFrom vroom vroom
-
 get_header <- function(sam){
   N <- 1L
   curfile <- file(sam, open="r")
@@ -29,6 +27,7 @@ get_header <- function(sam){
 }
 
 #' @export
+#' @importFrom vroom vroom
 read_sam <- function(sam, start = 1, nrow = Inf, select = c(1:6, 10),
                      nheader = NULL, header = NULL, return_header = FALSE){
   if(!(all(select%in%1:11))){
