@@ -16,7 +16,11 @@ get_header <- function(sam){
     N <- N + 1L
   }
   collected <- paste(collected, collapse = "\n")
-  collected <- fread(collected,header = FALSE)
+  if(collected==""){
+    close(curfile)
+    return(list(nheader = 0, seq_info = NULL))
+  }
+  collected <- vroom(collected, col_names = FALSE)
   collected$V2 <- sub("^SN:","", collected$V2)
   collected$V3 <- as.integer(sub("^LN:","", collected$V3))
   collected <- split(collected$V3, f=collected$V2)
@@ -25,7 +29,7 @@ get_header <- function(sam){
 }
 
 #' @export
-read_sam <- function(sam, start = 1, end = NULL, select = c(1:6, 10),
+read_sam <- function(sam, start = 1, nrow = Inf, select = c(1:6, 10),
                      nheader = NULL, header = NULL, return_header = FALSE){
   if(!(all(select%in%1:11))){
     stop()
@@ -42,20 +46,12 @@ read_sam <- function(sam, start = 1, end = NULL, select = c(1:6, 10),
   col_types <- sam_col_types[select]
 
   skip <- nheader + start - 1
-  if(is.null(end)){
-    system.time(sam_readin <- vroom(sam, delim = "\t", skip = skip,
-                                    col_names = FALSE,
-                                    col_types = col_types,
-                                    col_select = select,
-                                    escape_double = FALSE, quote = ""))
-  }else{
-    nrow <- end - start + 1
-    system.time(sam_readin <- vroom(sam, delim = "\t", skip = skip,
-                                    col_names = FALSE, n_max = nrow,
-                                    col_types = col_types,
-                                    col_select = select,
-                                    escape_double = FALSE, quote = ""))
-  }
+  system.time(sam_readin <- vroom(sam, delim = "\t", skip = skip,
+                                  col_names = FALSE, n_max = nrow,
+                                  col_types = col_types,
+                                  col_select = select,
+                                  escape_double = FALSE, quote = ""))
+
   sam_col_names <- c("QNAME","FLAG","RNAME","POS","MAPQ","CIGAR", "RNEXT", "PNEXT", "TLEN", "SEQ", "QUAL")
   colnames(sam_readin) <- sam_col_names[select]
   if(return_header){
