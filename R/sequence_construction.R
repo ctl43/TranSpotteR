@@ -23,6 +23,7 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   return(c(p, m))
 }
 
+#' @export
 .internal_construction <- function(x, BPPARAM){
   sign <- runValue(strand(x))
   if(length(sign)>1){
@@ -62,13 +63,24 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   cluster_contigs <- bplapply(cluster_seq, function(x)lapply(x, greedy_scs), BPPARAM = BPPARAM)
   cluster_contigs <- unlist(cluster_contigs, recursive = FALSE, use.names = FALSE)
 
-  # Assembling both clustered reads and their partner reads
+
+  ## Tidying up the number reads
   merged_contigs <- rep(CharacterList(character(0L)), length(partner_contigs))
+  partner_n_reads <- IntegerList(lapply(partner_contigs, "[[", i = 2))
+  cluster_n_reads <- IntegerList(lapply(cluster_contigs, "[[", i = 2))
+  partner_contigs <- CharacterList(lapply(partner_contigs, "[[", i = 1))
+  cluster_contigs <- CharacterList(lapply(cluster_contigs, "[[", i = 1))
+  elementMetadata(partner_contigs)$n_reads <- partner_n_reads
+  elementMetadata(cluster_contigs)$n_reads <- cluster_n_reads
+
+  # Assembling both clustered reads and their partner reads
   has_both <- lengths(partner_contigs) > 0 & lengths(cluster_contigs) > 0
   if(sum(has_both) > 0){
-    merged_seq <- mapply(function(x, y)list(seq = c(x[[1]], y[[1]]), n_reads = c(x[[2]], y[[2]])),
+    merged_seq <- mapply(function(x, y, p, q)list(seq = c(x, y), n_reads = c(p, q)),
                          x = partner_contigs[has_both],
                          y = cluster_contigs[has_both],
+                         p = partner_n_reads[has_both],
+                         q = cluster_n_reads[has_both],
                          SIMPLIFY = FALSE)
     merged_grp <- as.integer(cut(seq_along(merged_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
     merged_seq <- split(merged_seq, merged_grp)
@@ -82,14 +94,6 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   }
 
   # Storing data
-  ## Tidying up the number reads
-  partner_n_reads <- IntegerList(lapply(partner_contigs, "[[", i = 2))
-  cluster_n_reads <- IntegerList(lapply(cluster_contigs, "[[", i = 2))
-  partner_contigs <- CharacterList(lapply(partner_contigs, "[[", i = 1))
-  cluster_contigs <- CharacterList(lapply(cluster_contigs, "[[", i = 1))
-  elementMetadata(partner_contigs)$n_reads <- partner_n_reads
-  elementMetadata(cluster_contigs)$n_reads <- cluster_n_reads
-
   has_long <- lengths(merged_contigs) > 0
   x$has_long <- has_long
   x$long_contigs <- merged_contigs
