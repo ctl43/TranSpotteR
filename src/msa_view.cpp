@@ -19,6 +19,7 @@ std::vector<int> cxx_query_to_reference_position(std::string raln, std::string q
   return(q_in_rpos);
 }
 
+// [[Rcpp::export]]
 std::vector<int> cxx_ref_extension(Rcpp::List vecs){
   int list_size = vecs.size();
   Rcpp::IntegerVector collected_last(list_size);
@@ -54,7 +55,10 @@ std::vector<int> cxx_ref_extension(Rcpp::List vecs){
       }
       previous_pos = cur_pos;
     }
-    collected[previous_pos] = counter;
+
+    if(counter > collected[previous_pos]){ // for the last element
+      collected[previous_pos] = counter;
+    }
   }
 
   //int total_collected = std::accumulate(collected.begin(), collected.end(), 0);

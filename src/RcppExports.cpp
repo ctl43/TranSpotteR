@@ -5,6 +5,41 @@
 
 using namespace Rcpp;
 
+// cxx_query_to_reference_position
+std::vector<int> cxx_query_to_reference_position(std::string raln, std::string qaln);
+RcppExport SEXP _TranSpotteR_cxx_query_to_reference_position(SEXP ralnSEXP, SEXP qalnSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type raln(ralnSEXP);
+    Rcpp::traits::input_parameter< std::string >::type qaln(qalnSEXP);
+    rcpp_result_gen = Rcpp::wrap(cxx_query_to_reference_position(raln, qaln));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cxx_ref_extension
+std::vector<int> cxx_ref_extension(Rcpp::List vecs);
+RcppExport SEXP _TranSpotteR_cxx_ref_extension(SEXP vecsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::List >::type vecs(vecsSEXP);
+    rcpp_result_gen = Rcpp::wrap(cxx_ref_extension(vecs));
+    return rcpp_result_gen;
+END_RCPP
+}
+// msa_view
+Rcpp::StringVector msa_view(std::vector<std::string> raln, std::vector<std::string> qaln);
+RcppExport SEXP _TranSpotteR_msa_view(SEXP ralnSEXP, SEXP qalnSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type raln(ralnSEXP);
+    Rcpp::traits::input_parameter< std::vector<std::string> >::type qaln(qalnSEXP);
+    rcpp_result_gen = Rcpp::wrap(msa_view(raln, qaln));
+    return rcpp_result_gen;
+END_RCPP
+}
 // overlapper
 Rcpp::DataFrame overlapper(std::vector< std::string > seq1_set, std::vector< std::string > seq2_set);
 RcppExport SEXP _TranSpotteR_overlapper(SEXP seq1_setSEXP, SEXP seq2_setSEXP) {
@@ -45,6 +80,9 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_TranSpotteR_cxx_query_to_reference_position", (DL_FUNC) &_TranSpotteR_cxx_query_to_reference_position, 2},
+    {"_TranSpotteR_cxx_ref_extension", (DL_FUNC) &_TranSpotteR_cxx_ref_extension, 1},
+    {"_TranSpotteR_msa_view", (DL_FUNC) &_TranSpotteR_msa_view, 2},
     {"_TranSpotteR_overlapper", (DL_FUNC) &_TranSpotteR_overlapper, 2},
     {"_TranSpotteR_replcae_space", (DL_FUNC) &_TranSpotteR_replcae_space, 1},
     {"_TranSpotteR_t_coffee", (DL_FUNC) &_TranSpotteR_t_coffee, 5},

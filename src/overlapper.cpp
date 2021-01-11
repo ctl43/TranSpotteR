@@ -26,6 +26,7 @@ Rcpp::DataFrame overlapper(std::vector< std::string > seq1_set, std::vector< std
   IntegerVector seq_1_ol_start_pos(n), seq_1_ol_end_pos(n), seq_2_ol_start_pos(n), seq_2_ol_end_pos(n);
   NumericVector pid(n);
   IntegerVector aln_ol_len(n), n_match(n);
+  CharacterVector seq1_aln(n), seq2_aln(n);
 
   for(unsigned i = 0; i < n; ++i){
     std::string seq1= seq1_set[i];
@@ -41,6 +42,14 @@ Rcpp::DataFrame overlapper(std::vector< std::string > seq1_set, std::vector< std
     int score = globalAlignment(align, scoringScheme, AlignConfig<true, true, true, true>(), LinearGaps());
     TRow &row1 = row(align,0);
     TRow &row2 = row(align,1);
+
+    std::stringstream cur_seq1_aln;
+    cur_seq1_aln << row1;
+    seq1_aln[i] = cur_seq1_aln.str();
+
+    std::stringstream cur_seq2_aln;
+    cur_seq2_aln << row2;
+    seq2_aln[i] = cur_seq2_aln.str();
 
     // Initialisation
     int aln_len = length(row1);
@@ -107,7 +116,7 @@ Rcpp::DataFrame overlapper(std::vector< std::string > seq1_set, std::vector< std
     n_match[i] = stats.numMatches;
   }
 
-  return DataFrame::create(Named("seq1_left_clipped_len") = seq1_left_clipped_len_storage,
+  return List::create(Named("seq1_left_clipped_len") = seq1_left_clipped_len_storage,
                            Named("seq1_right_clipped_len") = seq1_right_clipped_len_storage,
                            Named("seq2_left_clipped_len") = seq2_left_clipped_len_storage,
                            Named("seq2_right_clipped_len") = seq2_right_clipped_len_storage,
@@ -117,14 +126,9 @@ Rcpp::DataFrame overlapper(std::vector< std::string > seq1_set, std::vector< std
                            Named("seq1_ol_end") = seq_1_ol_end_pos,
                            Named("seq2_ol_start") = seq_2_ol_start_pos,
                            Named("seq2_ol_end") = seq_2_ol_end_pos,
+                           Named("seq1_aln") = seq1_aln,
+                           Named("seq2_aln") = seq2_aln,
                            Named("pid") = pid,
                            Named("n_match") = n_match,
                            Named("aln_ol_len") = aln_ol_len);
-
-  //return List::create(seq1_left_clipped_len_storage, seq1_right_clipped_len_storage,
-  //                    seq2_left_clipped_len_storage, seq2_right_clipped_len_storage,
-  //                    seq_1_len_storage, seq_2_len_storage,
-  //                    seq_1_ol_start_pos, seq_1_ol_end_pos,
-  //                    seq_2_ol_start_pos, seq_2_ol_end_pos,
-  //                    pid, n_match, aln_ol_len);
 }
