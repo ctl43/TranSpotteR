@@ -32,7 +32,7 @@ bwa_alignment <- function(seq, ref="/home/ctlaw/reference/Homo_sapiens/hs37d5/hs
   }
   temp_fa <- file.path(working_dir, basename(working_dir))
   writeFasta(DNAStringSet(seq), temp_fa)
-  cmd <- paste0(call_bwa, ref, " ",temp_fa, call_samtools,"|cut -f 1,2,3,4,5,6,10")
+  cmd <- paste0(call_bwa, ref, " ", temp_fa, call_samtools,"|cut -f 1,2,3,4,5,6,10")
   result <- system(cmd, intern = TRUE)
   if(length(result)==0){
     return(data.frame(
