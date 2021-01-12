@@ -4,7 +4,7 @@ get_header <- function(sam){
   curfile <- file(sam, open="r")
   collected <- c()
   repeat {
-    curline <- readLines(curfile, n=1)
+    curline <- readLines(curfile, n = 1)
     if (!grepl("^@", curline)) {
       break
     }
@@ -13,15 +13,15 @@ get_header <- function(sam){
     }
     N <- N + 1L
   }
-  collected <- paste(collected, collapse = "\n")
-  if(collected==""){
+  collected <- collected[!is.na(collected)]
+  collected <- read.delim(text = collected, stringsAsFactors = FALSE, header= FALSE)
+  if(collected == ""){
     close(curfile)
     return(list(nheader = 0, seq_info = NULL))
   }
-  collected <- vroom(collected, col_names = FALSE)
-  collected$V2 <- sub("^SN:","", collected$V2)
-  collected$V3 <- as.integer(sub("^LN:","", collected$V3))
-  collected <- split(collected$V3, f=collected$V2)
+  collected[[2]] <- sub("^SN:","", collected[[2]])
+  collected[[3]] <- as.integer(sub("^LN:","", collected[[3]]))
+  collected <- split(collected[[3]], f = collected[[2]])
   close(curfile)
   return(list(nheader = N - 1L, seq_info = unlist(collected)))
 }
@@ -45,11 +45,11 @@ read_sam <- function(sam, start = 1, nrow = Inf, select = c(1:6, 10),
   col_types <- sam_col_types[select]
 
   skip <- nheader + start - 1
-  system.time(sam_readin <- vroom(sam, delim = "\t", skip = skip,
-                                  col_names = FALSE, n_max = nrow,
-                                  col_types = col_types,
-                                  col_select = select,
-                                  escape_double = FALSE, quote = ""))
+  sam_readin <- vroom(sam, delim = "\t", skip = skip,
+                      col_names = FALSE, n_max = nrow,
+                      col_types = col_types,
+                      col_select = select,
+                      escape_double = FALSE, quote = "")
 
   sam_col_names <- c("QNAME","FLAG","RNAME","POS","MAPQ","CIGAR", "RNEXT", "PNEXT", "TLEN", "SEQ", "QUAL")
   colnames(sam_readin) <- sam_col_names[select]
