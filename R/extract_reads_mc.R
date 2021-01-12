@@ -3,12 +3,12 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 #' @importFrom data.table rbindlist data.table
 
-extract_info_reads <- function(bam, readin = 2.5E6, tmp_dir, threads = 8L,
+extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, threads = 8L,
                                out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
                                samtools = "samtools"){
   # bam <- "/home/ctlawaa0119/project/alignment/bam/ERR093456.bam"
   # tmp_dir <- "/home/ctlawaa0119/project/transpotter"
-  tag <- gsub(".bam$", "", basename(bam))
+
 
   if (is.null(tmp_dir)) {
     tempdir()
@@ -17,11 +17,16 @@ extract_info_reads <- function(bam, readin = 2.5E6, tmp_dir, threads = 8L,
     on.exit(unlink(tmp_dir, recursive = TRUE))
   }
 
-  sorted_sam <- file.path(tmp_dir, paste0(tag, ".sam"))
+  if(is.null(sorted_sam)){
+    tag <- gsub(".bam$", "", basename(bam))
+    sorted_sam <- file.path(tmp_dir, paste0(tag, ".sam"))
+    print(paste(Sys.time(), "Sorting reads"))
+    cmd <- paste("(", samtools, "sort -@", threads,"-n -m 1500M -o -", bam, "|", samtools, "view -h -", ")>", sorted_sam, collapse = " ")
+    system(cmd)
+  }else{
+    tag <- gsub(".sam$", "", basename(sorted_sam))
+  }
 
-  print(paste(Sys.time(), "Sorting reads"))
-  cmd <- paste("(", samtools, "sort -@", threads,"-n -m 1500M -o -", bam, "|", samtools, "view -h -", ")>", sorted_sam, collapse = " ")
-  system(cmd)
   # txt <- "/home/ctlaw/dicky/analysis/Enhancer_hijack/temp/ERR093456.sam"
   n_row <- system(paste0("wc -l ", sorted_sam), intern = TRUE)
   n_row <- as.integer(gsub(" .*", "", n_row))
