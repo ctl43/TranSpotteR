@@ -15,7 +15,7 @@ get_header <- function(sam){
   }
   collected <- collected[!is.na(collected)]
   collected <- read.delim(text = collected, stringsAsFactors = FALSE, header= FALSE)
-  if(collected == ""){
+  if(class(collected)[1] != "data.frame"){
     close(curfile)
     return(list(nheader = 0, seq_info = NULL))
   }
