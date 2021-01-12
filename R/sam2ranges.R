@@ -1,5 +1,5 @@
 #' @export
-#' @importFrom utils count.fields read.delim 
+#' @importFrom utils count.fields read.delim
 #' @importFrom GenomicAlignments cigarWidthAlongReferenceSpace
 #' @importFrom S4Vectors split
 #' @importFrom IRanges IRanges
@@ -16,7 +16,7 @@ suppressMessages(library(utils))
 
 sam2ranges <- function(sam, minq = 10, restricted = NULL)
   # Returns an GRanges object containing read name, position, length, strand and chr location.
-  # This is a bit more complicated due to the need to parse a SAM file, not a BAM file 
+  # This is a bit more complicated due to the need to parse a SAM file, not a BAM file
   # (which would have been easy via Rsamtools, but ONT CIGARs don't fit inside BAM fields).
   #
   # written by Florian Bieberich
@@ -25,26 +25,26 @@ sam2ranges <- function(sam, minq = 10, restricted = NULL)
   sam_data <- read_sam(sam, return_header = TRUE)
   mapping <- sam_data$mapping
   header <- sam_data$header
-  # Keeping only mapped reads and non-secondary reads. 
+  # Keeping only mapped reads and non-secondary reads.
   keep <- !bitwAnd(mapping$FLAG, 0x4) & !bitwAnd(mapping$FLAG, 0x100)
   if (!is.null(minq)) {
     keep <- keep & mapping$MAPQ >= minq
   }
   mapping <- mapping[keep,]
-  
+
   # Creating a GRanges object.
   align.len <- cigarWidthAlongReferenceSpace(mapping$CIGAR)
   pos <- as.integer(as.character(mapping$POS))
   granges <- GRanges(mapping$RNAME, IRanges(pos, width=align.len), strand=ifelse(bitwAnd(mapping$FLAG, 0x10), "-", "+"),
                      seqinfo=Seqinfo(names(header), seqlengths=header))
-  
+
   # Annotating with left/right soft/hard clips.
   granges$left.clip <- .get_clip_length(mapping$CIGAR)
   granges$right.clip <- .get_clip_length(mapping$CIGAR, start=FALSE)
-  
+
   # Restricting to a subset of the alignments on particular chromosomes.
   read.names <- mapping$QNAME
-  if (!is.null(restricted)){ 
+  if (!is.null(restricted)){
     keep <- seqnames(granges) %in% restricted
     granges <- granges[keep]
     read.names <- read.names[as.logical(keep)]
