@@ -30,6 +30,8 @@ extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, 
   # txt <- "/home/ctlaw/dicky/analysis/Enhancer_hijack/temp/ERR093456.sam"
   n_row <- system(paste0("wc -l ", sorted_sam), intern = TRUE)
   n_row <- as.integer(gsub(" .*", "", n_row))
+  nheader <- get_header(sorted_sam)$nheader
+  n_row <- n_row - nheader
   n_skip <- seq(0, n_row, by = readin)
 
   print(paste(Sys.time(), "Importing reads and extracting informative reads"))
@@ -63,7 +65,9 @@ extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, 
   write.table(multi_mapped, mm_out, quote = FALSE, col.names=TRUE, row.names=FALSE, sep="\t")
 
   # Cleaning up
-  system(paste("rm", sorted_sam, collapse = " "))
+  if(is.null(sorted_sam)){
+    system(paste("rm", sorted_sam, collapse = " "))
+  }
 }
 
 
@@ -88,7 +92,7 @@ get_info <- function(input, chromosome = NULL){
   system.time(informative_reads <- .extract_informative_reads(input, chromosome = chromosome))
   c(head_tail_reads=list(rbind(head_reads, tail_reads)), informative_reads)
 }
-
+#' @export
 #' @importFrom data.table rbindlist data.table
 #' @importFrom Rsamtools bamFlagAsBitMatrix
 .extract_informative_reads <- function(seq_info, chromosome = NULL){
