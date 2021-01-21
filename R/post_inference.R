@@ -36,15 +36,20 @@ convert_dt_to_gr <- function(df){
   combined
 }
 
-#' @export
-#' @importFrom Biostrings getSeq
-get_motif <- function(df){
-  Hsapiens <- BSgenome.Hsapiens.1000genomes.hs37d5::BSgenome.Hsapiens.1000genomes.hs37d5
+get_exact <- function(df){
   exact_3p <- df$"3p_is_exact"
   exact_5p <- df$"5p_is_exact"
   exact_3p[is.na(exact_3p)] <- FALSE
   exact_5p[is.na(exact_5p)] <- FALSE
   selected <- df[exact_3p & exact_5p, ]
+  selected
+}
+
+#' @export
+#' @importFrom Biostrings getSeq
+get_motif <- function(df){
+  Hsapiens <- BSgenome.Hsapiens.1000genomes.hs37d5::BSgenome.Hsapiens.1000genomes.hs37d5
+  selected <- get_exact(df)
   start_at_5p <- selected$"5p_insert_start" < selected$"3p_insert_start"
   end_at_5p <- !start_at_5p
   cur_strand <- selected[end_at_5p & selected$"3p_insert_orientation"=="-", ]
