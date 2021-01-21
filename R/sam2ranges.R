@@ -4,15 +4,6 @@
 #' @importFrom S4Vectors split
 #' @importFrom IRanges IRanges
 #' @importFrom GenomicRanges GRanges
-#' @importFrom data.table fread
-
-
-suppressMessages(library(GenomicRanges))
-suppressMessages(library(data.table))
-suppressMessages(library(S4Vectors))
-suppressMessages(library(GenomicAlignments))
-suppressMessages(library(utils))
-
 
 sam2ranges <- function(sam, minq = 10, restricted = NULL)
   # Returns an GRanges object containing read name, position, length, strand and chr location.
