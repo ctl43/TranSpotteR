@@ -31,6 +31,7 @@ clustering_reads <- function(total, min_peak = 5, size_tol = 0){
   # Getting partner reads
   partner_ids <- .get_partner_read_id(unlist(combined$members, use.names = FALSE)$QNAME_id)
   combined$partners <- split(total[partner_ids], rep(seq_along(combined), lengths(combined$members)))
+  names(combined) <- seq_along(combined)
   combined
 }
 
