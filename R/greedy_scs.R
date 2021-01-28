@@ -4,8 +4,7 @@
 #' @importFrom uuid UUIDgenerate
 
 #' @export
-greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE,
-                         return_no_assembly = FALSE, add_id = TRUE, min_len = 8L,
+greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, min_len = 8L,
                        min_pid = 85, consensus_min_len = 100)
   # It assembles reads (getting the shortest common superstring problem, scs) by overlap-layout-consensus method.
   # The overlapping part, it simply chooses the pair with longest overlapping length, so called a greedy way.
@@ -75,16 +74,11 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE,
   pairwise_aln <- mapply(function(x, y) overlapper(rep(y, length(x)), original_vec[x]), x = member_idx, y = vec[non_solo_id], SIMPLIFY = FALSE)
   msa_view_aln <- lapply(pairwise_aln, function(x)msa_view(x[["seq1_aln"]], x[["seq2_aln"]]))
   consensus <- unlist(sapply(msa_view_aln, .process_msa))
-
-  if(!is.null(consensus_min_len)){
-    consensus <- consensus[nchar(consensus) >= consensus_min_len]
-  }
-
   names(msa_view_aln) <- non_solo_id
 
   if(length(consensus) > 0L){
     if(add_id ){
-      names(consensus) <- UUIDgenerate(n = length(consensus))
+      names(msa_view_aln) <- names(consensus) <- UUIDgenerate(n = length(consensus))
     }else{
       names(consensus) <- non_solo_id
     }
@@ -94,14 +88,20 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE,
   # Computing the number of reads consisting the consensus sequence
   non_solo_n_reads <- unlist(lapply(member_idx, function(x)sum(n_reads[x])))
 
-  if(return_no_assembly){
-    solo <- CharacterList(vec[solo_id])
-    n_reads <- c(non_solo_n_reads, n_reads[solo_id])
-    consensus <- c(consensus, solo)
-    msa_view_aln <- c(msa_view_aln, split(solo, solo_id))
-  }else{
-    n_reads <- non_solo_n_reads
+  if(!is.null(consensus_min_len)){
+    non_solo_n_reads <- non_solo_n_reads[nchar(consensus) >= consensus_min_len]
+    msa_view_aln <- msa_view_aln[nchar(consensus) >= consensus_min_len]
+    consensus <- consensus[nchar(consensus) >= consensus_min_len]
   }
+
+  # if(return_no_assembly){
+  #   solo <- CharacterList(vec[solo_id])
+  #   n_reads <- c(non_solo_n_reads, n_reads[solo_id])
+  #   consensus <- c(consensus, solo)
+  #   msa_view_aln <- c(msa_view_aln, split(solo, solo_id))
+  # }else{
+    n_reads <- non_solo_n_reads
+  # }
 
   if(msa_result){
     return(list(consensus = consensus, msa = msa_view_aln))
