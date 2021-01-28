@@ -4,13 +4,17 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 
 # A wrapper for read annotation
-annotate_constructed_reads <- function(x, BPPARAM = MulticoreParam(workers = 3L), min_len = NULL)
+annotate_constructed_reads <- function(x,
+                                       ref_1 = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
+                                       ref_2 = "/home/ctlaw/reference/Homo_sapiens/hs37d5/hs37d5_KJ173426.fa",
+                                       BPPARAM = MulticoreParam(workers = 3L))
   # A wrapper function process both plus and minus stranded read clusters.
   # Written by Cheuk-Ting Law
 {
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
-  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, customised_annotation = list(has_polyA = has_polyA), min_len = min_len)
+  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, ref_1 = ref_1, ref_2 = ref_2,
+                  customised_annotation = list(has_polyA = has_polyA))
   out <- rbind(out[[1]], out[[2]])
   names(out) <- c("contig_detail", "nreads", "cluster_origin")
   return(out)
@@ -52,10 +56,11 @@ has_polyA <- function(x){
 #' @importFrom stringr 'str_sub'
 .add_back_seq <- function(x, occupied_info, QNAME){
   if(nrow(occupied_info) == 0){
-    return(data.table(start = 1, end = nchar(x),
+    return(data.table(start = 1,
+                      end = nchar(x),
                       width = nchar(x),
-                      annotation = x,
                       QNAME = QNAME,
+                      annotation = x,
                       cigar = "*",
                       seq = x))
   }
@@ -70,9 +75,11 @@ has_polyA <- function(x){
   need_start <- need_start[selected_seq!=""]
   need_end <- need_end[selected_seq!=""]
   selected_seq <- selected_seq[selected_seq!=""]
-  selected <- data.table(start = need_start, end = need_end, width = need_end - need_start + 1,
-                         annotation = selected_seq,
+  selected <- data.table(start = need_start,
+                         end = need_end,
+                         width = need_end - need_start + 1,
                          QNAME = rep(QNAME, length(selected_seq)),
+                         annotation = selected_seq,
                          cigar = rep("*", length(selected_seq)))
   occupied_info <- rbind(occupied_info, selected)
   occupied_info$seq <- str_sub(x, start = occupied_info$start, end = occupied_info$end)
@@ -83,7 +90,7 @@ has_polyA <- function(x){
 #' @export
 #' @importFrom IRanges CharacterList
 .internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3),
-                                  customised_annotation = list(has_polyA = has_polyA), min_len = 100)
+                                  customised_annotation = list(has_polyA = has_polyA), ref_1, ref_2)
   # A wrapper function to annotate clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
   # Written by Cheuk-Ting Law
@@ -97,19 +104,13 @@ has_polyA <- function(x){
     return(NULL)
   }
 
-  if(!is.null(min_len)){
-    clusters$cluster_contigs <- clusters$cluster_contigs[nchar(clusters$cluster_contigs) > min_len]
-    clusters$partner_contigs <- clusters$partner_contigs[nchar(clusters$partner_contigs) > min_len]
-    clusters$long_contigs <- clusters$long_contigs[nchar(clusters$long_contigs) > min_len]
-  }
-
   # Can be sped up by combining all the reads together and only doing once.
   flat_cluster_contigs <- unlist(clusters$cluster_contigs)
   flat_partner_contigs <- unlist(clusters$partner_contigs)
   flat_long_contigs <- unlist(clusters$long_contigs)
-  cluster_anno <- .annotate_reads(flat_cluster_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
-  partner_anno <- .annotate_reads(flat_partner_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
-  long_anno <- .annotate_reads(flat_long_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation)
+  cluster_anno <- .annotate_reads(flat_cluster_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, ref_1 = ref_1, ref_2 = ref_2)
+  partner_anno <- .annotate_reads(flat_partner_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, ref_1 = ref_1, ref_2 = ref_2)
+  long_anno <- .annotate_reads(flat_long_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, ref_1 = ref_1, ref_2 = ref_2)
   cluster_grp <- factor(rep(names(clusters), lengths(clusters$cluster_contigs)), levels = names(clusters))
   partner_grp <- factor(rep(names(clusters), lengths(clusters$partner_contigs)), levels = names(clusters))
   long_grp <- factor(rep(names(clusters), lengths(clusters$long_contigs)), levels = names(clusters))
@@ -142,12 +143,13 @@ has_polyA <- function(x){
   tmp_fun_2 <- function(...){
     mapply(data.table, ..., SIMPLIFY = FALSE)
   }
-  combined_info <- do.call(function(...)mapply(tmp_fun_2, ...), combined_info)
-  long_info <- do.call(function(...)mapply(tmp_fun_2, ...), long_anno)
+  combined_info <- do.call(function(...)mapply(tmp_fun_2, ..., SIMPLIFY = FALSE), combined_info)
+  long_info <- do.call(function(...)mapply(tmp_fun_2, ..., SIMPLIFY = FALSE), long_anno)
   long_nreads <- elementMetadata(clusters$long_contigs)$n_reads
   combined_nreads[lengths(long_nreads) > 0] <- long_nreads[lengths(long_nreads) > 0]
   combined_info[lengths(long_nreads) > 0] <- long_info[lengths(long_nreads) > 0]
 
+  names(combined_info) <- names(clusters)
   combined_info_grp <- rep(names(combined_info), lengths(combined_info))
   flat_combined_info <- unlist(combined_info, recursive = FALSE, use.names = FALSE)
   flat_combined_nreads <- unlist(combined_nreads)
@@ -161,14 +163,14 @@ has_polyA <- function(x){
 #' @importFrom IRanges RleList CharacterList
 #' @importFrom BiocGenerics start end width 'start<-' 'end<-'
 
-.annotate_reads <- function(seq, ref = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
+.annotate_reads <- function(seq, ref_1, ref_2,
                             BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
   # This function annotates chimeric sequences that consist of any multi-mapped sequences/non-reference sequence and any genomic regions.
   # It first mapped the bait (repeated regions/non-reference sequence), then the genomic regions by bwa
   # Written by Cheuk-Ting Law
 {
   if(length(seq) == 0){
-    return(character())
+    return(data.table())
   }
 
   if(any(duplicated(names(seq)))){
@@ -180,7 +182,7 @@ has_polyA <- function(x){
   }
 
   # Mapping to LINE1 sequence
-  aln_1 <- bwa_alignment(seq, ref = ref, samtools_param = "")
+  aln_1 <- bwa_alignment(seq, ref = ref_1, samtools_param = "")
   aln_1 <- convertingHtoS(aln_1, unique_id = "QNAME")
 
   # Annotating the reads
@@ -195,13 +197,13 @@ has_polyA <- function(x){
 
   # Can be sped up by combining all the reads together and only doing once.
   aln_2 <- bplapply(clipped_seq_1, bwa_alignment, call_bwa = "bwa mem ",
-                    samtools_param = "-F 128 -F 4", BPPARAM = BPPARAM)
+                    samtools_param = "-F 128 -F 4", BPPARAM = BPPARAM, ref = ref_2)
   aln_2 <- lapply(aln_2, convertingHtoS, unique_id = "QNAME")
   aln_2 <- lapply(aln_2, function(x)x[x$MAPQ > 10,])
   aln_2 <- lapply(aln_2, function(x){x$unified_cigar <- unify_cigar_strand(x$CIGAR, flag = x$FLAG, to = "+"); x})
 
   mapping_2 <- lapply(aln_2, sam2gr)
-  middle_aln_2 <- bwa_alignment(unlist(middle$seq), call_bwa = "bwa mem ", samtools_param = "-F 128 -F 4")
+  middle_aln_2 <- bwa_alignment(unlist(middle$seq), call_bwa = "bwa mem ", samtools_param = "-F 128 -F 4", ref = ref_2)
   middle_aln_2 <- convertingHtoS(middle_aln_2, unique_id = "QNAME")
   middle_aln_2$unified_cigar <- unify_cigar_strand(middle_aln_2$CIGAR, flag = middle_aln_2$FLAG, to = "+")
 
@@ -209,8 +211,8 @@ has_polyA <- function(x){
   # Getting the location of the mapped location in the reads
   mapped_1 <- aln_1[!aln_1$CIGAR=="*",]
   mapping1_read_loc <- unlist(cigarRangesAlongQuerySpace(mapped_1$unified_cigar, ops = c("M", "I"), reduce.ranges = TRUE))
-  elementMetadata(mapping1_read_loc)$annotation <- as.character(sam2gr(mapped_1))
   elementMetadata(mapping1_read_loc)$QNAME <- mapped_1$QNAME
+  elementMetadata(mapping1_read_loc)$annotation <- as.character(sam2gr(mapped_1))
   elementMetadata(mapping1_read_loc)$cigar <- mapped_1$unified_cigar
 
   # For left clipped reads
@@ -236,8 +238,8 @@ has_polyA <- function(x){
   mid_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(middle_aln_2$unified_cigar, ops = c("M", "I"), reduce.ranges = TRUE))
   mid_read_loc <- IRanges(start = mid_start + start(mid_clipped_read_loc) - 1,
                           end = mid_start + end(mid_clipped_read_loc) - 1 )
-  elementMetadata(mid_read_loc)$annotation <- as.character(sam2gr(middle_aln_2))
   elementMetadata(mid_read_loc)$QNAME <- gsub("\\..*","",middle_aln_2$QNAME)
+  elementMetadata(mid_read_loc)$annotation <- as.character(sam2gr(middle_aln_2))
   elementMetadata(mid_read_loc)$cigar <- middle_aln_2$unified_cigar
 
   # For unmapped reads
