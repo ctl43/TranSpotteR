@@ -50,16 +50,13 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   # Assembling partner seq
   partner_grp <- as.integer(cut(seq_along(partner_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
   partner_seq <- split(partner_seq, partner_grp)
-  # system.time(partner_contigs <- bplapply(partner_seq, greedy_scs, BPPARAM = BPPARAM))
   partner_contigs <- bplapply(partner_seq, function(x)lapply(x, greedy_scs), BPPARAM = BPPARAM)
   partner_contigs <- unlist(partner_contigs, recursive = FALSE, use.names = FALSE)
 
   # Assembling cluster sequences
-  # cluster_seq <- lapply(x$members, function(x)elementMetadata(x)$SEQUENCE)
   cluster_seq <- split(unlist(x$members)$SEQUENCE, rep(seq_along(x), lengths(x$members)))
   cluster_grp <- as.integer(cut(seq_along(cluster_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
   cluster_seq <- split(cluster_seq, cluster_grp)
-  # cluster_contigs <- bplapply(cluster_seq, greedy_scs, BPPARAM = BPPARAM)
   cluster_contigs <- bplapply(cluster_seq, function(x)lapply(x, greedy_scs), BPPARAM = BPPARAM)
   cluster_contigs <- unlist(cluster_contigs, recursive = FALSE, use.names = FALSE)
 
@@ -74,7 +71,15 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   elementMetadata(cluster_contigs)$n_reads <- cluster_n_reads
 
   # Assembling both clustered reads and their partner reads
+  ## Requiring to have both cluster contig and partner contig
   has_both <- lengths(partner_contigs) > 0 & lengths(cluster_contigs) > 0
+  partner_contigs[!has_both] <- CharacterList(character(0L))
+  cluster_contigs[!has_both] <- CharacterList(character(0L))
+  partner_n_reads[!has_both] <- IntegerList(integer(0L))
+  cluster_n_reads[!has_both] <- IntegerList(integer(0L))
+  elementMetadata(partner_contigs)$n_reads <- partner_n_reads
+  elementMetadata(cluster_contigs)$n_reads <- cluster_n_reads
+
   if(sum(has_both) > 0){
     merged_seq <- mapply(function(x, y, p, q)list(seq = c(x, y), n_reads = c(p, q)),
                          x = partner_contigs[has_both],
@@ -84,7 +89,6 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
                          SIMPLIFY = FALSE)
     merged_grp <- as.integer(cut(seq_along(merged_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
     merged_seq <- split(merged_seq, merged_grp)
-    # merged_contigs[has_both] <- bplapply(merged_seq, greedy_scs, BPPARAM = BPPARAM)
     tmp <- bplapply(merged_seq, function(x)lapply(x, function(x)greedy_scs(x[[1]], x[[2]])), BPPARAM = BPPARAM)
     tmp <- unlist(tmp, recursive = FALSE, use.names = FALSE)
     tmp_merged_n_reads <- IntegerList(lapply(tmp, "[[", i = 2))
@@ -98,8 +102,10 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   x$has_long <- has_long
   x$long_contigs <- merged_contigs
   partner_contigs[has_long] <- CharacterList(character(0L))
+  elementMetadata(partner_contigs)[["n_reads"]][has_long] <- IntegerList(integer(0L))
   x$partner_contigs <- partner_contigs
   cluster_contigs[has_long] <- CharacterList(character(0L))
+  elementMetadata(cluster_contigs)[["n_reads"]][has_long] <- IntegerList(integer(0L))
   x$cluster_contigs <- cluster_contigs
   x
 }
