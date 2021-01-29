@@ -6,9 +6,6 @@
 extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, threads = 8L,
                                out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
                                samtools = "samtools"){
-  # bam <- "/home/ctlawaa0119/project/alignment/bam/ERR093456.bam"
-  # tmp_dir <- "/home/ctlawaa0119/project/transpotter"
-
 
   if (is.null(tmp_dir)) {
     tempdir()
@@ -26,8 +23,6 @@ extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, 
   }else{
     tag <- gsub(".sam$", "", basename(sorted_sam))
   }
-
-  # txt <- "/home/ctlaw/dicky/analysis/Enhancer_hijack/temp/ERR093456.sam"
   n_row <- system(paste0("wc -l ", sorted_sam), intern = TRUE)
   n_row <- as.integer(gsub(" .*", "", n_row))
   nheader <- get_header(sorted_sam)$nheader
@@ -47,14 +42,6 @@ extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, 
   # Exporting discordant reads
   discordant <- rbindlist(lapply(info, "[[", "discordant"))
   discordant <- rbind(discordant, extra_info$discordant)
-  # discordant$strand <- ifelse(bitwAnd(discordant$FLAG, 0x10), "-", "+")
-  # pos_diff <- discordant[, list(range = range(POS)), by = QNAME]
-  # pos_diff <- pos_diff[, list(diff = diff(range)), by = QNAME]
-  # pos_diff_q <- pos_diff$QNAME[pos_diff$diff > 5000]
-  # rname_strand <- discordant[, list(n_rname = length(unique(RNAME)),
-  #                                   n_strand = length(unique(strand))), by = QNAME]
-  # rs_diff_q <- rname_strand$QNAME[rname_strand$n_rname != 1]#|rname_strand$n_strand != 1]
-  # discordant[discordant$QNAME %in% c(rs_diff_q, pos_diff_q)]
   disc_out <- file.path(out_dir, paste0(tag, "_disc.txt"))
   write.table(discordant, disc_out, quote = FALSE, col.names = TRUE, row.names = FALSE, sep = "\t")
 
@@ -92,65 +79,84 @@ get_info <- function(input, chromosome = NULL){
   system.time(informative_reads <- .extract_informative_reads(input, chromosome = chromosome))
   c(head_tail_reads=list(rbind(head_reads, tail_reads)), informative_reads)
 }
+
 #' @export
-#' @importFrom data.table rbindlist data.table
+#' @importFrom data.table rbindlist data.table like
 #' @importFrom Rsamtools bamFlagAsBitMatrix
-.extract_informative_reads <- function(seq_info, chromosome = NULL){
+.extract_informative_reads <- function(seq_info, chromosome = c(1:22, "X", "Y"), interested_region){
   # Converting sam flag to readable matrix
-  mat <- bamFlagAsBitMatrix(seq_info[["FLAG"]])
+  selected_flag <- c("hasUnmappedMate", "isSupplementaryAlignment", "isProperPair")
+  label <- bamFlagAsBitMatrix(seq_info$"FLAG", bitnames = selected_flag)
+  colnames(label) <- c("HAS_UNMAPPED_MATE", "IS_SUPP_ALN", "IS_PROPER_PAIR")
+  dt <- data.table(QNAME = seq_info$"QNAME", RNAME = seq_info$"RNAME",
+                   START = seq_info$"POS", END = seq_info$"POS", MAPQ = seq_info$"MAPQ")
+  dt <- data.table(dt, label)
 
   # Gathering information for statisitc analysis
   if(!is.null(chromosome)){
-    non_target_RNAME <- !seq_info[["RNAME"]] %in% chromosome
+    NON_TARGET_RNAME <- !dt$"RNAME" %in% chromosome
+  }else{
+    NON_TARGET_RNAME <- FALSE
   }
 
-  mat <- data.table(QNAME = seq_info[["QNAME"]], count = 1,
-                    highMAPQ = seq_info[["MAPQ"]] > 5,
-                    lowMAPQ = seq_info[["MAPQ"]] <= 5,
-                    non_target_RNAME = non_target_RNAME,
-                    mat)
-  mat$targetIsHigh <- (mat$highMAPQ & !mat$non_target_RNAME)
+  label <- data.table(QNAME = dt$QNAME, COUNT = 1,
+                      HIGH_MAPQ = dt$"MAPQ" > 5,
+                      LOW_MAPQ = dt$"MAPQ" <= 5,
+                      NON_TARGET_RNAME = NON_TARGET_RNAME,
+                      label)
+  label$TARGET_IS_HIGH <- (label$HIGH_MAPQ & !label$"NON_TARGET_RNAME")
 
   # Gathering flag statistics in a paired reads way
-  paired_flag <- mat[, list(count = sum(count), highMAPQ = sum(highMAPQ),
-                            lowMAPQ = sum(lowMAPQ), isProperPair = sum(isProperPair),
-                            isSupplementaryAlignment = sum(isSupplementaryAlignment),
-                            haveNonTargetRname = sum(non_target_RNAME),
-                            isUnmappedQuery = sum(isUnmappedQuery),
-                            targetIsHigh = sum(targetIsHigh)), by = "QNAME"]
+  label_count <- label[, list(COUNT = sum(COUNT),
+                              HIGH_MAPQ = sum(HIGH_MAPQ),
+                              LOW_MAPQ = sum(LOW_MAPQ),
+                              IS_PROPER_PAIR = sum(IS_PROPER_PAIR),
+                              IS_SUPP_ALN = sum(IS_SUPP_ALN),
+                              NON_TARGET_RNAME = sum(NON_TARGET_RNAME),
+                              HAS_UNMAPPED_MATE = sum(HAS_UNMAPPED_MATE),
+                              TARGET_IS_HIGH = sum(TARGET_IS_HIGH)),
+                       by = "QNAME"]
 
   # Getting not interested reads
-  all_low <- paired_flag$"count" == paired_flag$"lowMAPQ" # reads with a pair of low mapq
-  all_proper <- paired_flag$"count" == paired_flag$"highMAPQ" & # sensible reads (not split reads, no unmapped reads and all high mapq)
-    paired_flag$"isSupplementaryAlignment" == 0 &
-    paired_flag$"isProperPair" == paired_flag$count &
-    paired_flag$"isUnmappedQuery" == 0
-  both_non_target <- paired_flag[["haveNonTargetRname"]] == paired_flag$count # both reads are on the non target chromosom
+  all_low <- label_count$"COUNT" == label_count$"LOW_MAPQ" # reads with a pair of low mapq
+  all_proper <- label_count$"COUNT" == label_count$"HIGH_MAPQ" & # sensible reads (not split reads, no unmapped reads and all high mapq)
+    label_count$"IS_PROPER_PAIR" == label_count$"COUNT" &
+    label_count$"IS_SUPP_ALN" == 0 &
+    label_count$"HAS_UNMAPPED_MATE" == 0
+  both_non_target <- label_count$"NON_TARGET_RNAME" == label_count$"COUNT" # both reads are on the non target chromosom
   unwanted <- all_proper | all_low | both_non_target
 
   # Getting reads with at least one with high mapq and one with low mapq
-  is_high_low_mapq <- paired_flag[["highMAPQ"]] != 0 &
-    (paired_flag[["lowMAPQ"]] != 0 | paired_flag[["isUnmappedQuery"]] != 0) &
-    paired_flag[["targetIsHigh"]] > 0 & (!unwanted)
-  high_low_mapq <- paired_flag[["QNAME"]][is_high_low_mapq]
+  is_high_low_mapq <- label_count$"TARGET_IS_HIGH" > 0 & (!unwanted) &
+    (label_count$"LOW_MAPQ" != 0 | label_count$"HAS_UNMAPPED_MATE" != 0)
+  high_low_mapq <- label_count$"QNAME"[is_high_low_mapq]
 
   # Getting reads with long Clipped sequence
-  sh_loc <- grep("S|H",seq_info$CIGAR, perl = TRUE)
-  sh_data <- seq_info[sh_loc,]
-  is_left_long_clip <- .get_clip_length(sh_data$CIGAR) > 10
-  is_right_long_clip <- .get_clip_length(sh_data$CIGAR, start = FALSE) > 10
-  sh_q <- sh_data$QNAME[is_left_long_clip|is_right_long_clip]
+  has_sh <- like(seq_info$"CIGAR", "S|H")
+  sh_data <- seq_info[has_sh, ]
+  is_long_left_clip <- .get_clip_length(sh_data$"CIGAR") > 10
+  is_long_long_clip <- .get_clip_length(sh_data$"CIGAR", start = FALSE) > 10
+  sh_q <- sh_data$"QNAME"[is_long_left_clip | is_long_long_clip]
+
+  # Getting reads in interested regions
+  if(!is.null(interested_region)){
+    setkey(interested_region, "RNAME", "START", "END")
+    region <- dt$"QNAME"[unique(foverlaps(dt, interested_region, type = "any", nomatch=NULL, which = TRUE)[[1]])]
+  }else{
+    region <- NULL
+  }
+
+  # Combining them into the interested RNAME
   interested <- c(high_low_mapq, sh_q)
-  interested <- interested[!interested %in% paired_flag[["QNAME"]][unwanted]]
-  high_low_mapq <- seq_info[seq_info[["QNAME"]] %in% interested,]
+  interested <- interested[!interested %in% label_count$"QNAME"[unwanted]]
+  interested <- seq_info[seq_info$"QNAME" %in% c(interested, region), ]
 
   # Getting discor reads
-  is_high_high_discor <- paired_flag[["count"]] == paired_flag[["highMAPQ"]] &
-    (paired_flag[["isProperPair"]] != paired_flag[["count"]] |
-       paired_flag[["isSupplementaryAlignment"]] > 0) &
-    !unwanted
-  high_high_discor <- paired_flag[["QNAME"]][is_high_high_discor]
-  high_high_discor <- seq_info[seq_info[["QNAME"]] %in% high_high_discor,]
-  list(multi_mapped = high_low_mapq, discordant = high_high_discor)
-}
+  is_high_high_discor <- label_count$"COUNT" == label_count$"TARGET_IS_HIGH" &
+    (label_count$"IS_PROPER_PAIR" != label_count$"COUNT" |
+       label_count$"IS_SUPP_ALN" > 0) & !unwanted
+  high_high_discor <- label_count$"QNAME"[is_high_high_discor]
+  high_high_discor <- seq_info[seq_info$"QNAME" %in% high_high_discor,]
 
+  list(multi_mapped = interested, discordant = high_high_discor)
+}
