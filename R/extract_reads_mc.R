@@ -3,10 +3,17 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 #' @importFrom data.table rbindlist data.table
 
-extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, threads = 8L,
+extract_info_reads <- function(bam, sorted_sam = NULL,
+                               readin = 2.5E6, tmp_dir, threads = 8L,
                                out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
-                               samtools = "samtools"){
-
+                               samtools = "samtools",
+                               interested_region = "/home/ctlaw/dicky/reference/RepeatMasker/L1PA1_2_3.txt",
+                               cleanup = FALSE){
+  if(!is.null(interested_region)){
+    interested_region <- fread(interested_region, header = FALSE)
+    interested_region <- interested_region[, 1:3]
+    colnames(interested_region) <- c("RNAME", "START", "END")
+  }
   if (is.null(tmp_dir)) {
     tempdir()
     tmp_dir <- tempfile()
@@ -23,6 +30,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, 
   }else{
     tag <- gsub(".sam$", "", basename(sorted_sam))
   }
+  print(paste(Sys.time(), "Counting the number of total alignment records"))
   n_row <- system(paste0("wc -l ", sorted_sam), intern = TRUE)
   n_row <- as.integer(gsub(" .*", "", n_row))
   nheader <- get_header(sorted_sam)$nheader
@@ -32,13 +40,14 @@ extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, 
   print(paste(Sys.time(), "Importing reads and extracting informative reads"))
   info <- bplapply(n_skip, function(x){
     reads_txt <- read_sam(sorted_sam, start = x + 1L, nrow = readin, select = c(1:6, 10))
-    info <- get_info(reads_txt, chromosome = chromosome)
+    info <- get_info(reads_txt, chromosome = chromosome, interested_region = interested_region)
   }, BPPARAM =  MulticoreParam(workers = threads))
 
   # Extracting information from head and tail reads
   extra <- do.call(rbind, lapply(info, "[[", "head_tail_reads"))
-  extra_info <- .extract_informative_reads(extra, chromosome = chromosome)
+  extra_info <- .extract_informative_reads(extra, chromosome = chromosome, interested_region = interested_region)
 
+  print(paste(Sys.time(), "Exporting result"))
   # Exporting discordant reads
   discordant <- rbindlist(lapply(info, "[[", "discordant"))
   discordant <- rbind(discordant, extra_info$discordant)
@@ -46,20 +55,20 @@ extract_info_reads <- function(bam, sorted_sam = NULL, readin = 2.5E6, tmp_dir, 
   write.table(discordant, disc_out, quote = FALSE, col.names = TRUE, row.names = FALSE, sep = "\t")
 
   # Exporting reads mapped to multiple regions
-  multi_mapped <- rbindlist(lapply(info, "[[", "multi_mapped"))
-  multi_mapped <- rbind(multi_mapped, extra_info$multi_mapped)
-  mm_out <- file.path(out_dir, paste0(tag, "_mm.txt"))
-  write.table(multi_mapped, mm_out, quote = FALSE, col.names=TRUE, row.names=FALSE, sep="\t")
+  interested <- rbindlist(lapply(info, "[[", "interested"))
+  interested <- rbind(interested, extra_info$interested)
+  interested_out <- file.path(out_dir, paste0(tag, "_interested.txt"))
+  write.table(interested, interested_out, quote = FALSE, col.names=TRUE, row.names=FALSE, sep="\t")
 
   # Cleaning up
-  if(is.null(sorted_sam)){
+  if(cleanup){
     system(paste("rm", sorted_sam, collapse = " "))
   }
 }
 
 
 #' @export
-get_info <- function(input, chromosome = NULL){
+get_info <- function(input, chromosome = NULL, interested_region){
   readin <- N <- nrow(input)
   # Getting tail reads
   last_qname <- input[readin, "QNAME"]
@@ -76,7 +85,7 @@ get_info <- function(input, chromosome = NULL){
   }
   head_reads <- input[1:Q,]
   input <- input[-c(1:Q, N:readin),]
-  system.time(informative_reads <- .extract_informative_reads(input, chromosome = chromosome))
+  system.time(informative_reads <- .extract_informative_reads(input, chromosome = chromosome, interested_region = interested_region))
   c(head_tail_reads=list(rbind(head_reads, tail_reads)), informative_reads)
 }
 
@@ -158,5 +167,5 @@ get_info <- function(input, chromosome = NULL){
   high_high_discor <- label_count$"QNAME"[is_high_high_discor]
   high_high_discor <- seq_info[seq_info$"QNAME" %in% high_high_discor,]
 
-  list(multi_mapped = interested, discordant = high_high_discor)
+  list(interested = interested, discordant = high_high_discor)
 }
