@@ -97,7 +97,7 @@ get_info <- function(input, chromosome = NULL, interested_region){
 }
 
 #' @export
-#' @importFrom data.table rbindlist data.table like
+#' @importFrom data.table rbindlist data.table like setkey
 #' @importFrom Rsamtools bamFlagAsBitMatrix
 .extract_informative_reads <- function(seq_info, chromosome = c(1:22, "X", "Y", "KJ173426"), interested_region){
   # Converting sam flag to readable matrix
