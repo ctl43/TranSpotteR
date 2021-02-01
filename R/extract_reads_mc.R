@@ -1,14 +1,21 @@
 #' @export
 #' @importFrom vroom vroom
-#' @importFrom BiocParallel bplapply MulticoreParam
+#' @importFrom BiocParallel bplapply MulticoreParam SnowParam SerialParam
 #' @importFrom data.table rbindlist data.table
 
 extract_info_reads <- function(bam, sorted_sam = NULL,
-                               readin = 2.5E6, tmp_dir, threads = 8L,
+                               readin = 2.5E6, tmp_dir, BPPARAM = SerialParam(),
                                out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
                                samtools = "samtools",
                                interested_region = "/home/ctlaw/dicky/reference/RepeatMasker/L1PA1_2_3.txt",
                                cleanup = FALSE){
+
+  if(class(BPPARAM)=="SerialParam"){
+    threads <- 1
+  }else{
+    threads <- BPPARAM$workers
+  }
+
   if(!is.null(interested_region)){
     interested_region <- fread(interested_region, header = FALSE)
     interested_region <- interested_region[, 1:3]
@@ -92,7 +99,7 @@ get_info <- function(input, chromosome = NULL, interested_region){
 #' @export
 #' @importFrom data.table rbindlist data.table like
 #' @importFrom Rsamtools bamFlagAsBitMatrix
-.extract_informative_reads <- function(seq_info, chromosome = c(1:22, "X", "Y"), interested_region){
+.extract_informative_reads <- function(seq_info, chromosome = c(1:22, "X", "Y", "KJ173426"), interested_region){
   # Converting sam flag to readable matrix
   selected_flag <- c("hasUnmappedMate", "isSupplementaryAlignment", "isProperPair")
   label <- bamFlagAsBitMatrix(seq_info$"FLAG", bitnames = selected_flag)
