@@ -48,7 +48,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   info <- bplapply(n_skip, function(x){
     reads_txt <- read_sam(sorted_sam, start = x + 1L, nrow = readin, select = c(1:6, 10))
     info <- get_info(reads_txt, chromosome = chromosome, interested_region = interested_region)
-  }, BPPARAM =  MulticoreParam(workers = threads))
+  }, BPPARAM =  BPPARAM)
 
   # Extracting information from head and tail reads
   extra <- do.call(rbind, lapply(info, "[[", "head_tail_reads"))
@@ -97,7 +97,7 @@ get_info <- function(input, chromosome = NULL, interested_region){
 }
 
 #' @export
-#' @importFrom data.table rbindlist data.table like setkey
+#' @importFrom data.table rbindlist data.table like setkey foverlaps
 #' @importFrom Rsamtools bamFlagAsBitMatrix
 .extract_informative_reads <- function(seq_info, chromosome = c(1:22, "X", "Y", "KJ173426"), interested_region){
   # Converting sam flag to readable matrix
