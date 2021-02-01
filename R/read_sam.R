@@ -51,7 +51,7 @@ read_sam <- function(sam, start = 1, nrow = Inf, select = c(1:6, 10),
                       col_select = select,
                       escape_double = FALSE, quote = "")
 
-  sam_col_names <- c("QNAME","FLAG","RNAME","POS","MAPQ","CIGAR", "RNEXT", "PNEXT", "TLEN", "SEQ", "QUAL")
+  sam_col_names <- c("QNAME","FLAG","RNAME","POS","MAPQ","CIGAR", "RNEXT", "PNEXT", "TLEN", "SEQUENCE", "QUAL")
   colnames(sam_readin) <- sam_col_names[select]
   if(return_header){
     list(header = header$seq_info, mapping = sam_readin)
