@@ -8,6 +8,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
                                out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
                                samtools = "samtools",
                                interested_region = "/home/ctlaw/dicky/reference/RepeatMasker/L1PA1_2_3.txt",
+                               interested_seq = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
                                cleanup = FALSE){
 
   if(class(BPPARAM)=="SerialParam"){
@@ -45,10 +46,10 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   n_skip <- seq(0, n_row, by = readin)
 
   print(paste(Sys.time(), "Importing reads and extracting informative reads"))
-  info <- bplapply(n_skip, function(x){
-    reads_txt <- read_sam(sorted_sam, start = x + 1L, nrow = readin, select = c(1:6, 10))
+  info <- bplapply(n_skip, function(x, sam){
+    reads_txt <- read_sam(sam, start = x + 1L, nrow = readin, select = c(1:6, 10))
     info <- get_info(reads_txt, chromosome = chromosome, interested_region = interested_region)
-  }, BPPARAM =  BPPARAM)
+  }, BPPARAM =  BPPARAM, sam = sorted_sam)
 
   # Extracting information from head and tail reads
   extra <- do.call(rbind, lapply(info, "[[", "head_tail_reads"))
@@ -58,12 +59,33 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   # Exporting discordant reads
   discordant <- rbindlist(lapply(info, "[[", "discordant"))
   discordant <- rbind(discordant, extra_info$discordant)
+  has_multiple_seqnames <- lengths(unique(CharacterList(split(discordant$RNAME, discordant$QNAME)))) > 1
+  start_range <- range(IntegerList(split(discordant$POS, discordant$QNAME)))
+  keep <- rownames(start_range)[(start_range[,2] - start_range[,1] > 5000) | has_multiple_seqnames] # Extracting read that are far apart enough
+  discordant <- discordant[discordant$QNAME %in% keep,]
+  to_keep <- discordant$QNAME[discordant$MAPQ > disc_min_mapq]
+  discordant <- discordant[discordant$QNAME %in% to_keep, ]
   disc_out <- file.path(out_dir, paste0(tag, "_disc.txt"))
   write.table(discordant, disc_out, quote = FALSE, col.names = TRUE, row.names = FALSE, sep = "\t")
 
   # Exporting reads mapped to multiple regions
   interested <- rbindlist(lapply(info, "[[", "interested"))
   interested <- rbind(interested, extra_info$interested)
+  is_first <- !!bitwAnd(interested$FLAG, 0x40)
+  interested$QNAME_id <- paste0(interested$QNAME,"_",as.integer(!is_first) + 1)
+  non_hard_clipped <- interested[!like(interested$"CIGAR", "H")]
+
+  # Aligning the read to interested sequence
+  reads <- non_hard_clipped$SEQUENCE
+  names(reads) <- non_hard_clipped$QNAME_id
+  aln <- bwa_alignment(reads, ref = interested_seq, samtools_param = "-F 2308")
+  has_long_clip <- .get_clip_length(aln$CIGAR) > 10|.get_clip_length(aln$CIGAR, start = FALSE) > 10
+  q <- sub("_.*", "", aln$QNAME)
+  both_here <- lengths(CharacterList(split(aln$QNAME, q)))>1
+  both_here_q <- unique(q)[both_here]
+  good_q <- q[!(q%in%both_here_q)|has_long_clip]
+  interested <- interested[interested$QNAME%in%good_q]
+
   interested_out <- file.path(out_dir, paste0(tag, "_interested.txt"))
   write.table(interested, interested_out, quote = FALSE, col.names=TRUE, row.names=FALSE, sep="\t")
 
@@ -157,7 +179,9 @@ get_info <- function(input, chromosome = NULL, interested_region){
   # Getting reads in interested regions
   if(!is.null(interested_region)){
     setkey(interested_region, "RNAME", "START", "END")
-    region <- dt$"QNAME"[unique(foverlaps(dt, interested_region, type = "any", nomatch=NULL, which = TRUE)[[1]])]
+    ol <- foverlaps(dt, interested_region, type = "any", nomatch=NULL, which = TRUE)
+    region <- dt$"QNAME"[unique(ol[[1]])]
+    region <- region[!region%in%(label_count$QNAME[all_low])]
   }else{
     region <- NULL
   }
