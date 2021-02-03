@@ -37,13 +37,13 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
     cmd <- paste("(", samtools, "sort -@", threads,"-n -m 1500M -o -", bam, "|", samtools, "view -|cut -f 1,2,3,4,5,6,10", ")>", sorted_sam, collapse = " ")
     system(cmd)
   }else{
-    tag <- gsub(".sam$", "", basename(sorted_sam))
+    tag <- gsub("\\..*", "", basename(sorted_sam))
   }
   print(paste(Sys.time(), "Counting the number of total alignment records"))
   n_row <- system(paste0("wc -l ", sorted_sam), intern = TRUE)
   n_row <- as.integer(gsub(" .*", "", n_row))
-  nheader <- get_header(sorted_sam)$nheader
-  n_row <- n_row - nheader
+  # nheader <- get_header(sorted_sam)$nheader
+  # n_row <- n_row - nheader
   n_skip <- seq(0, n_row, by = readin)
 
   print(paste(Sys.time(), "Importing reads and extracting informative reads"))
@@ -73,8 +73,8 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   start_range <- range(IntegerList(split(discordant$POS, discordant$QNAME)))
   keep <- rownames(start_range)[(start_range[,2] - start_range[,1] > 5000) | has_multiple_seqnames] # Extracting read that are far apart enough
   discordant <- discordant[discordant$QNAME %in% keep,]
-  to_keep <- discordant$QNAME[discordant$MAPQ > disc_min_mapq]
-  discordant <- discordant[discordant$QNAME %in% to_keep, ]
+  # to_keep <- discordant$QNAME[discordant$MAPQ > disc_min_mapq]
+  # discordant <- discordant[discordant$QNAME %in% to_keep, ]
   disc_out <- file.path(out_dir, paste0(tag, "_disc.txt"))
   write.table(discordant, disc_out, quote = FALSE, col.names = TRUE, row.names = FALSE, sep = "\t")
 
