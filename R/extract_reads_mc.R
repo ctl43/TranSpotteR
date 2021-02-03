@@ -33,7 +33,8 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
     tag <- gsub(".bam$", "", basename(bam))
     sorted_sam <- file.path(tmp_dir, paste0(tag, ".sam"))
     print(paste(Sys.time(), "Sorting reads"))
-    cmd <- paste("(", samtools, "sort -@", threads,"-n -m 1500M -o -", bam, "|", samtools, "view -h -", ")>", sorted_sam, collapse = " ")
+    # cmd <- paste("(", samtools, "sort -@", threads,"-n -m 1500M -o -", bam, "|", samtools, "view -h -", ")>", sorted_sam, collapse = " ")
+    cmd <- paste("(", samtools, "sort -@", threads,"-n -m 1500M -o -", bam, "|", samtools, "view -|cut -f 1,2,3,4,5,6,10", ")>", sorted_sam, collapse = " ")
     system(cmd)
   }else{
     tag <- gsub(".sam$", "", basename(sorted_sam))
@@ -46,10 +47,19 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   n_skip <- seq(0, n_row, by = readin)
 
   print(paste(Sys.time(), "Importing reads and extracting informative reads"))
-  info <- bplapply(n_skip, function(x, sam){
-    reads_txt <- read_sam(sam, start = x + 1L, nrow = readin, select = c(1:6, 10))
-    info <- get_info(reads_txt, chromosome = chromosome, interested_region = interested_region)
-  }, BPPARAM =  BPPARAM, sam = sorted_sam)
+  # tmp_files <- replicate(length(n_skip), tempfile())
+  # info <- bpmapply(function(x, sam, tmp_file, readin, chromosome, interested_region, get_info){
+  #   reads_txt <- TranSpotteR::read_sam(sam, start = x + 1L, nrow = readin, select = c(1:6, 10))
+  #   TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region, tmp_file = tmp_file)
+  # }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, tmp_file = tmp_files, readin = readin,
+  # chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
+
+  info <- bpmapply(function(x, sam, tmp_file, readin, chromosome, interested_region, get_info){
+    reads_txt <- data.table::fread(sam, skip = x, nrows = readin)
+    colnames(reads_txt) <- c("QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "SEQUENCE")
+    TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region, tmp_file = tmp_file)
+  }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, readin = readin,
+  chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
 
   # Extracting information from head and tail reads
   extra <- do.call(rbind, lapply(info, "[[", "head_tail_reads"))
@@ -84,7 +94,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   both_here <- lengths(CharacterList(split(aln$QNAME, q)))>1
   both_here_q <- unique(q)[both_here]
   good_q <- q[!(q%in%both_here_q)|has_long_clip]
-  interested <- interested[interested$QNAME%in%good_q]
+  interested <- interested[interested$QNAME %in% good_q]
 
   interested_out <- file.path(out_dir, paste0(tag, "_interested.txt"))
   write.table(interested, interested_out, quote = FALSE, col.names=TRUE, row.names=FALSE, sep="\t")
@@ -97,7 +107,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
 
 
 #' @export
-get_info <- function(input, chromosome = NULL, interested_region){
+get_info <- function(input, chromosome = NULL, interested_region, tmp_file){
   readin <- N <- nrow(input)
   # Getting tail reads
   last_qname <- input[readin, "QNAME"]
@@ -114,14 +124,16 @@ get_info <- function(input, chromosome = NULL, interested_region){
   }
   head_reads <- input[1:Q,]
   input <- input[-c(1:Q, N:readin),]
-  system.time(informative_reads <- .extract_informative_reads(input, chromosome = chromosome, interested_region = interested_region))
-  c(head_tail_reads=list(rbind(head_reads, tail_reads)), informative_reads)
+  informative_reads <- .extract_informative_reads(input, chromosome = chromosome, interested_region = interested_region)#, tmp_file = tmp_file)
+  # .extract_informative_reads(input, chromosome = chromosome, interested_region = interested_region, tmp_file = tmp_file)
+  c(head_tail_reads = list(rbind(head_reads, tail_reads)), informative_reads)
+  # rbind(head_reads, tail_reads)
 }
 
 #' @export
 #' @importFrom data.table rbindlist data.table like setkey foverlaps
 #' @importFrom Rsamtools bamFlagAsBitMatrix
-.extract_informative_reads <- function(seq_info, chromosome = c(1:22, "X", "Y", "KJ173426"), interested_region){
+.extract_informative_reads <- function(seq_info, chromosome = c(1:22, "X", "Y", "KJ173426"), interested_region){#, tmp_file){
   # Converting sam flag to readable matrix
   selected_flag <- c("hasUnmappedMate", "isSupplementaryAlignment", "isProperPair")
   label <- bamFlagAsBitMatrix(seq_info$"FLAG", bitnames = selected_flag)
@@ -197,6 +209,9 @@ get_info <- function(input, chromosome = NULL, interested_region){
        label_count$"IS_SUPP_ALN" > 0) & !unwanted
   high_high_discor <- label_count$"QNAME"[is_high_high_discor]
   high_high_discor <- seq_info[seq_info$"QNAME" %in% high_high_discor,]
-
+  # tmp_disc <- paste0(tmp_file, "_disc.txt")
+  # tmp_interested <- paste0(tmp_file, "_interested.txt")
+  # write.table(interested, tmp_interested, quote = FALSE, sep = "\t", col.names = TRUE, row.names = FALSE)
+  # write.table(high_high_discor, tmp_disc, quote = FALSE, sep = "\t", col.names = TRUE, row.names = FALSE)
   list(interested = interested, discordant = high_high_discor)
 }
