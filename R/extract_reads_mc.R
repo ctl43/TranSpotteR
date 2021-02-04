@@ -54,12 +54,17 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   # }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, tmp_file = tmp_files, readin = readin,
   # chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
 
-  info <- bpmapply(function(x, sam, tmp_file, readin, chromosome, interested_region, get_info){
-    reads_txt <- data.table::fread(sam, skip = x, nrows = readin)
-    colnames(reads_txt) <- c("QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "SEQUENCE")
-    TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region, tmp_file = tmp_file)
-  }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, readin = readin,
-  chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
+  n_skip <- split(n_skip, cut(seq_alog(n_skip), len = threads))
+  info <- bplapply(n_skip, function(i){
+    mapply(function(x, sam, tmp_file, readin, chromosome, interested_region, get_info){
+      reads_txt <- data.table::fread(sam, skip = x, nrows = readin)
+      colnames(reads_txt) <- c("QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "SEQUENCE")
+      TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region, tmp_file = tmp_file)
+    }, x = j, sam = sorted_sam, readin = readin,
+    chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
+  },BPPARAM =  BPPARAM)
+
+  info <- unlist(info, recursive = FALSE, use.names = FALSE)
 
   # Extracting information from head and tail reads
   extra <- do.call(rbind, lapply(info, "[[", "head_tail_reads"))
