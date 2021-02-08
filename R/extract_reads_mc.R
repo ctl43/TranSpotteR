@@ -54,8 +54,11 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   # }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, tmp_file = tmp_files, readin = readin,
   # chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
 
+
   info <- bpmapply(function(x, sam, tmp_file, readin, chromosome, interested_region, get_info){
-    reads_txt <- data.table::fread(sam, skip = x, nrows = readin)
+    cmd = paste0('gawk "NR > ', x, '" ', sam)
+    reads_txt = fread(cmd, nrows = readin)
+    # reads_txt <- data.table::fread(sam, skip = x, nrows = readin)
     colnames(reads_txt) <- c("QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "SEQUENCE")
     TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region, tmp_file = tmp_file)
   }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, readin = readin,
