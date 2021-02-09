@@ -23,9 +23,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
     colnames(interested_region) <- c("RNAME", "START", "END")
   }
   if (is.null(tmp_dir)) {
-    tempdir()
-    tmp_dir <- tempfile()
-    dir.create(tmp_dir)
+    tmp_dir <- tempdir()
     on.exit(unlink(tmp_dir, recursive = TRUE))
   }
 
@@ -33,37 +31,35 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
     tag <- gsub(".bam$", "", basename(bam))
     sorted_sam <- file.path(tmp_dir, paste0(tag, ".sam"))
     print(paste(Sys.time(), "Sorting reads"))
-    # cmd <- paste("(", samtools, "sort -@", threads,"-n -m 1500M -o -", bam, "|", samtools, "view -h -", ")>", sorted_sam, collapse = " ")
     cmd <- paste("(", samtools, "sort -@", threads,"-n -m 1500M -o -", bam, "|", samtools, "view -|cut -f 1,2,3,4,5,6,10", ")>", sorted_sam, collapse = " ")
     system(cmd)
   }else{
     tag <- gsub("\\..*", "", basename(sorted_sam))
   }
   print(paste(Sys.time(), "Counting the number of total alignment records"))
-  n_row <- system(paste0("wc -l ", sorted_sam), intern = TRUE)
-  n_row <- as.integer(gsub(" .*", "", n_row))
-  # nheader <- get_header(sorted_sam)$nheader
-  # n_row <- n_row - nheader
-  n_skip <- seq(0, n_row, by = readin)
+  # n_row <- system(paste0("wc -l ", sorted_sam), intern = TRUE)
+  # n_row <- as.integer(gsub(" .*", "", n_row))
+  # n_skip <- seq(0, n_row, by = readin)
+
+  print(paste(Sys.time(), "Splitting reads for parallelisation"))
+  tmp_files <- tempfile(pattern = "chunk_", tmpdir = tmp_dir)
+  chunks <- system(paste("split", "-l", readin, sorted_sam, tmp_files, "--verbose",collapse = " "), intern = TRUE)
+  chunks <- gsub("creating file |'","",chunks)
 
   print(paste(Sys.time(), "Importing reads and extracting informative reads"))
-  # tmp_files <- replicate(length(n_skip), tempfile())
-  # info <- bpmapply(function(x, sam, tmp_file, readin, chromosome, interested_region, get_info){
-  #   reads_txt <- TranSpotteR::read_sam(sam, start = x + 1L, nrow = readin, select = c(1:6, 10))
-  #   TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region, tmp_file = tmp_file)
-  # }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, tmp_file = tmp_files, readin = readin,
-  # chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
-
-
-  info <- bpmapply(function(x, sam, tmp_file, readin, chromosome, interested_region, get_info){
-    what <- list(X1 = "c", X2 = "i", X3 = "c", X4 = "i", X5 = "i", X6 = "c", X10 = "c")
-    reads_txt <- vroom(sam, delim = "\t", skip = x, col_names = FALSE, n_max = readin, col_types = what)
-    # what <- c("character","integer","character","integer","integer","character","character")
-    # reads_txt <- data.table::fread(sam, skip = x, nrows = readin, colClasses = what)
+  info <- bpmapply(function(x, chromosome, interested_region){
+    what <- c("character","integer","character","integer","integer","character","character")
+    reads_txt <- data.table::fread(x, colClasses = what)
     colnames(reads_txt) <- c("QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "SEQUENCE")
-    TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region, tmp_file = tmp_file)
-  }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, readin = readin,
-  chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
+    TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region)
+  }, x = chunks, interested_region = list(interested_region), chromosome = list(chromosome), SIMPLIFY = FALSE)
+
+  # info <- bpmapply(function(x, sam, readin, chromosome, interested_region){
+  #   reads_txt <- data.table::fread(sam, skip = x, nrows = readin, colClasses = what)
+  #   colnames(reads_txt) <- c("QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "SEQUENCE")
+  #   TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region)
+  # }, BPPARAM =  BPPARAM, x = n_skip, sam = sorted_sam, readin = readin,
+  # chromosome = list(chromosome), interested_region = list(interested_region), SIMPLIFY = FALSE)
 
   # Extracting information from head and tail reads
   extra <- do.call(rbind, lapply(info, "[[", "head_tail_reads"))
