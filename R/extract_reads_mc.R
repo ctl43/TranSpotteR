@@ -4,7 +4,7 @@
 #' @importFrom data.table rbindlist data.table
 
 extract_info_reads <- function(bam, sorted_sam = NULL,
-                               readin = 2.5E6, tmp_dir, BPPARAM = SerialParam(),
+                               readin = 2.5E6, tmp_dir = NULL, BPPARAM = SerialParam(),
                                out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
                                samtools = "samtools",
                                interested_region = "/home/ctlaw/dicky/reference/RepeatMasker/L1PA1_2_3.txt",
@@ -24,6 +24,9 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   }
   if (is.null(tmp_dir)) {
     tmp_dir <- tempdir()
+    if(!dir.exists(tmp_dir)){
+      dir.create(tmp_dir)
+    }
     on.exit(unlink(tmp_dir, recursive = TRUE))
   }
 
@@ -36,10 +39,6 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   }else{
     tag <- gsub("\\..*", "", basename(sorted_sam))
   }
-  print(paste(Sys.time(), "Counting the number of total alignment records"))
-  # n_row <- system(paste0("wc -l ", sorted_sam), intern = TRUE)
-  # n_row <- as.integer(gsub(" .*", "", n_row))
-  # n_skip <- seq(0, n_row, by = readin)
 
   print(paste(Sys.time(), "Splitting reads for parallelisation"))
   tmp_files <- tempfile(pattern = "chunk_", tmpdir = tmp_dir)
