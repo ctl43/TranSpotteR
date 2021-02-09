@@ -43,7 +43,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   print(paste(Sys.time(), "Splitting reads for parallelisation"))
   tmp_files <- tempfile(pattern = "chunk_", tmpdir = tmp_dir)
   chunks <- system(paste("split", "-l", readin, sorted_sam, tmp_files, "--verbose",collapse = " "), intern = TRUE)
-  chunks <- gsub("creating file |'","",chunks)
+  chunks <- gsub("creating file |'|’","",chunks)
 
   print(paste(Sys.time(), "Importing reads and extracting informative reads"))
   info <- bpmapply(function(x, chromosome, interested_region){
