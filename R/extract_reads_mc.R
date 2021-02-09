@@ -10,7 +10,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
                                interested_region = "/home/ctlaw/dicky/reference/RepeatMasker/L1PA1_2_3.txt",
                                interested_seq = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
                                cleanup = FALSE){
-
+  options("scipen" = 999) # To avoid scientific notation
   if(class(BPPARAM)=="SerialParam"){
     threads <- 1
   }else{
