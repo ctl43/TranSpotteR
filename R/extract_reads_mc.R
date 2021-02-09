@@ -48,7 +48,7 @@ extract_info_reads <- function(bam, sorted_sam = NULL,
   print(paste(Sys.time(), "Importing reads and extracting informative reads"))
   info <- bpmapply(function(x, chromosome, interested_region){
     what <- c("character","integer","character","integer","integer","character","character")
-    reads_txt <- data.table::fread(x, colClasses = what)
+    reads_txt <- data.table::fread(x, colClasses = what, nThread = 1L)
     colnames(reads_txt) <- c("QNAME", "FLAG", "RNAME", "POS", "MAPQ", "CIGAR", "SEQUENCE")
     TranSpotteR::get_info(reads_txt, chromosome = chromosome, interested_region = interested_region)
   }, x = chunks, interested_region = list(interested_region), chromosome = list(chromosome), SIMPLIFY = FALSE)
