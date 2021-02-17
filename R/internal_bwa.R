@@ -3,7 +3,7 @@
 #' @importFrom ShortRead writeFasta
 
 bwa_alignment <- function(seq, ref="/home/ctlaw/reference/Homo_sapiens/hs37d5/hs37d5_KJ173426.fa",
-                         working_dir=NULL, samtools_param="-F 4", call_bwa = "bwa mem -t 5 "){
+                         working_dir=NULL, samtools_param="-F 4", call_bwa = "bwa mem ", threads = 1){
   if(length(seq)==0){
     return(data.frame("QNAME"= character(), "FLAG"= integer(),
                       "RNAME"= character(), "POS"= integer(),
@@ -32,7 +32,7 @@ bwa_alignment <- function(seq, ref="/home/ctlaw/reference/Homo_sapiens/hs37d5/hs
   }
   temp_fa <- file.path(working_dir, basename(working_dir))
   writeFasta(DNAStringSet(seq), temp_fa)
-  cmd <- paste0(call_bwa, ref, " ", temp_fa, call_samtools,"|cut -f 1,2,3,4,5,6,10")
+  cmd <- paste0(call_bwa, "-t ",threads, " ",ref, " ", temp_fa, call_samtools,"|cut -f 1,2,3,4,5,6,10")
   result <- system(cmd, intern = TRUE)
   if(length(result)==0){
     return(data.frame(
