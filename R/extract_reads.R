@@ -40,18 +40,19 @@ extract_reads <- function(bam,
 
   # Checking whether their partner is here and only getting those with partner
   interested <- read_aln_info(region_sam)
-  interested$READ_ID <- paste0(interested$QNAME, "_", bamFlagAsBitMatrix(interested$FLAG, bitnames = "isSecondMateRead")[, 1] + 1)
-  interested_pair_check <- data.table(QNAME = interested$QNAME, READ_ID = interested$READ_ID)
+  interested$QNAME_id <- paste0(interested$QNAME, "_", bamFlagAsBitMatrix(interested$FLAG, bitnames = "isSecondMateRead")[, 1] + 1)
+  interested_pair_check <- data.table(QNAME = interested$QNAME,
+                                      QNAME_id = interested$QNAME_id)[!grepl("H", interested$CIGAR),]
   interested_pair_check <- unique(interested_pair_check)
-  interested_pair_check <- interested_pair_check[, list(READ_ID_COUNT = length(READ_ID)), by = QNAME]
-  interested_pair_read <- interested_pair_check$QNAME[interested_pair_check$READ_ID_COUNT == 2]
+  interested_pair_check <- interested_pair_check[, list(QNAME_id_COUNT = length(QNAME_id)), by = QNAME]
+  interested_pair_read <- interested_pair_check$QNAME[interested_pair_check$QNAME_id_COUNT == 2]
   setkey(interested, QNAME)
   interested <- interested[J(interested_pair_read), ]
 
   # Getting meaningful discordant reads
   discordant <- read_aln_info(disc_sam)
   discordant <- discordant[!discordant$QNAME %in% interested$QNAME]
-  discordant$READ_ID <- paste0(discordant$QNAME, "_", bamFlagAsBitMatrix(discordant$FLAG, bitnames = "isSecondMateRead")[, 1] + 1)
+  discordant$QNAME_id <- paste0(discordant$QNAME, "_", bamFlagAsBitMatrix(discordant$FLAG, bitnames = "isSecondMateRead")[, 1] + 1)
   disc_check <- discordant[, list(RANGE = diff(range(POS)), N_RNAME = length(unique(RNAME))), by = QNAME]
   pass_disc_check <- disc_check[(disc_check$RANGE > 5000 | disc_check$N_RNAME > 1), "QNAME"]
   setkey(discordant, QNAME)
@@ -61,14 +62,14 @@ extract_reads <- function(bam,
   combined <- rbind(interested, discordant)
   no_hard_clipped <- combined[!grepl("H", combined$CIGAR), ]
   seq <- no_hard_clipped$SEQUENCE
-  names(seq) <- no_hard_clipped$READ_ID
+  names(seq) <- no_hard_clipped$QNAME_id
   aln <- setDT(bwa_alignment(seq, ref = interested_seq, samtools_param = "-F 2308", threads = threads))
   aln$ORIGIN_READ <- gsub("_.*", "", aln$QNAME)
   left_clipped_len <- .get_clip_length(aln$CIGAR)
   right_clipped_len <- .get_clip_length(aln$CIGAR, start = FALSE)
   aln$HAS_LONG_CLIPPED <- left_clipped_len > 20 | right_clipped_len > 20
-  insert_check <- aln[, list(HAS_LONG_CLIPPED = sum(HAS_LONG_CLIPPED), READ_ID_COUNT = length(QNAME)), by = ORIGIN_READ]
-  failed_insert_check <- insert_check[insert_check$READ_ID_COUNT == 2 & insert_check$HAS_LONG_CLIPPED == 0][[1]]
+  insert_check <- aln[, list(HAS_LONG_CLIPPED = sum(HAS_LONG_CLIPPED), QNAME_id_COUNT = length(QNAME)), by = ORIGIN_READ]
+  failed_insert_check <- insert_check[insert_check$QNAME_id_COUNT == 2 & insert_check$HAS_LONG_CLIPPED == 0][[1]]
   setkey(combined, QNAME)
   combined <- combined[-combined[failed_insert_check, which = TRUE]]
 
@@ -82,7 +83,7 @@ extract_reads <- function(bam,
 
   # Cleaning up
   if(!keep_intermediate){
-    system(paste("rm", region_sam, disc_sam, collapse = " "))
+    on.exit(unlink(c(region_sam, disc_sam)))
   }
 }
 
