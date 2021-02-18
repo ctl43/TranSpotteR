@@ -32,7 +32,11 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, m
   info <- data.table(info, setDT(overlapper(vec[info[[1]]], vec[info[[2]]])))
   info <- .reorder_seq_info(info)
   # Filtering abberent alignment
-  info <- info[info$pid > min_pid & info$aln_ol_len > min_len & (info$seq1_ol_start == 0L | info$seq2_ol_start == 0L), ]
+  info <- info[info$pid > min_pid & info$aln_ol_len > min_len &
+                 (info$seq1_ol_start == 0L | info$seq2_ol_start == 0L) &
+                 !(info$seq1_left_clipped_len == 0L & info$seq1_right_clipped_len ==0L) &
+                 !(info$seq2_left_clipped_len == 0L & info$seq2_right_clipped_len ==0L), ]
+
   info <- info[order(info$aln_ol_len, decreasing = TRUE), ]
 
   # Converting to 1-based index
@@ -52,7 +56,10 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, m
     vec <- vec[!names(vec) %in% c(selected$seq1, selected$seq2)]
     ol <- overlapper(rep(new_seq, length(vec)), vec)
     suppressWarnings(ol <- data.table(data.table(seq1 = names(new_seq), seq2 = names(vec)), ol))
-    ol <- ol[ol$pid > min_pid & ol$aln_ol_len > min_len & (ol$seq1_ol_start == 0L | ol$seq2_ol_start == 0L), ]
+    ol <- ol[ol$pid > min_pid & ol$aln_ol_len > min_len &
+               (ol$seq1_ol_start == 0L | ol$seq2_ol_start == 0L) &
+               !(ol$seq1_left_clipped_len == 0L & ol$seq1_right_clipped_len == 0L) &
+               !(ol$seq2_left_clipped_len == 0L & ol$seq2_right_clipped_len == 0L), ]
     ol <- .reorder_seq_info(ol)
     ol$seq1_ol_start <- ol$seq1_ol_start + 1L
     ol$seq1_ol_end <- ol$seq1_ol_end + 1L
