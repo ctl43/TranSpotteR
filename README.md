@@ -1,6 +1,4 @@
 # TranSpotteR
-
-## Aims
 This package aims to identify LINE1 insertion in the genome.
 
 ## Procedure
