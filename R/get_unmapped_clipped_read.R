@@ -5,6 +5,9 @@
 #' @importFrom Biostrings DNAStringSet reverseComplement DNAStringSetList
 
 get_unmapped_clipped_read <- function(x, include_middle_unmapped=TRUE){
+  # This function extracts the unmapped, clipped sequence
+  # and the umapped sequence that is in the middle of a read from sam derived input.
+
   x$QNAME <- as.character(x$QNAME)
 
   # Initialisation
@@ -39,7 +42,7 @@ get_unmapped_clipped_read <- function(x, include_middle_unmapped=TRUE){
 
   # Unifying the strand of sequences
   strand <- ifelse(bitwAnd(flag, 0x10), "-", "+")
-  is_rc <- strand=="-"
+  is_rc <- strand == "-"
   seq[is_rc] <- reverseComplement(DNAStringSet(seq[is_rc]))
 
   # Unifying the strand of CIGAR string
