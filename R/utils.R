@@ -5,7 +5,7 @@
 #' @importFrom IRanges CharacterList
 
 # Converting read annotation to genomic range
-convert_character2gr <- function(y){
+convert_character2gr <- function(y, extra_info = NULL){
 
   is_list <- class(y)%in%c("list", "CompressedCharacterList")
   if(is_list){
@@ -31,6 +31,13 @@ convert_character2gr <- function(y){
   y[, 2] <- as.integer(y[, 2])
   y[, 3] <- as.integer(y[, 3])
   gr <- GRanges(seqnames=y[, 1], IRanges(start = y[, 2], end = y[, 3]), strand = y[, 4])
+
+  if(!is.null(extra_info)){
+    extra_info <- lapply(extra_info, unlist)
+    for(i in names(extra_info)){
+      elementMetadata(gr)[[i]] <- extra_info[[i]]
+    }
+  }
 
   if(is_list){
     return(S4Vectors::split(gr, list_grp))
@@ -86,8 +93,6 @@ unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query = FALSE
 #' @importFrom GenomicRanges GRanges
 #' @importFrom IRanges IRanges
 #' @importFrom GenomicAlignments cigarWidthAlongReferenceSpace
-
-
 sam2gr <- function(mapping, seqinfo=NULL){
   if(is.null(mapping)){
     return(GRanges())
@@ -98,4 +103,29 @@ sam2gr <- function(mapping, seqinfo=NULL){
                 seqinfo = seqinfo)
   names(gr) <- mapping$QNAME
   gr
+}
+
+#' @export
+#' @import Biostrings reverseComplement DNAStringSet
+string_reverseComplement <- function(strings){
+  as.character(reverseComplement(DNAStringSet(strings)))
+}
+
+#' @export
+#' @importFrom Biostrings reverseComplement DNAStringSet
+convertingHtoS <- function(x, unique_id="QNAME_id"){
+  is_rc <- !!bitwAnd(x$FLAG, 0x10)
+  is_primary <- !bitwAnd(x$FLAG, 0x100)
+  non_supp <- !bitwAnd(x$FLAG, 0x800)
+  x$SEQUENCE[x$SEQUENCE=="*"] <- ""
+  seq <- x$SEQUENCE
+  seq <- DNAStringSet(seq)
+  seq[is_rc] <- reverseComplement(seq[is_rc]) # Converting all sequence to + strand
+  non_hard_seq <- seq[non_supp&is_primary]
+  names(non_hard_seq) <- x[non_supp&is_primary,][[unique_id]]
+  tmp_seq <- non_hard_seq[as.character(x[[unique_id]])]
+  tmp_seq[is_rc] <- reverseComplement(tmp_seq[is_rc])
+  x$SEQUENCE <- as.character(tmp_seq)
+  x$CIGAR <- gsub("H","S", x$CIGAR)
+  x
 }
