@@ -3,8 +3,7 @@
 #' @importFrom Biostrings DNAStringSet DNAStringSetList reverseComplement
 #' @importFrom BiocParallel bplapply MulticoreParam
 
-sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), prevent_overload = TRUE, max_n = 100){
-  # prevent overloading (need to be moved to another place)
+sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10)){
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
   p <- .internal_construction(p, BPPARAM = BPPARAM)
@@ -14,6 +13,7 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
 
 #' @export
 .internal_construction <- function(x, BPPARAM){
+  # Constructing reads for clustered reads, partner reads and then long contig
   sign <- runValue(strand(x))
   if(length(sign)>1){
     stop()

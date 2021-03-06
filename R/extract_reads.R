@@ -8,7 +8,7 @@ extract_reads <- function(bam,
                           interested_seq = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
                           keep_intermediate = FALSE,
                           threads = 5){
-
+# A wrapper to extract discordant reads by calling samtools and filtering those obvious non-informatic read pairs
   if (is.null(tmp_dir)) {
     tmp_dir <- tempdir()
     if(!dir.exists(tmp_dir)){

@@ -10,6 +10,7 @@
 #' @importFrom data.table rbindlist
 
 line1_inference <- function(x, n_reads = NULL, search_range = 10000){
+  # This functions infers the line1 insertion from the annotated constructed reads.
   storage <- list("genomic_qname_5p" = NA,
                   "genomic_rname_5p" = NA,
                   "genomic_start_5p" = NA,
@@ -45,7 +46,7 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
                   "has_polyA" = NA,
                   "overlapping_genomic_region" = NA)
 
-  # Preprocessing the data
+  # Preprocessing and reorganizing the data
   n_anno <- sapply(x, nrow)
   if(!is.null(n_reads)){
     n_reads <- rep(n_reads, sum(n_anno))
@@ -77,7 +78,7 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
   gr <- split(gr, gr$origin)
   elementMetadata(gr)$read_annotation <- split(x, x$origin)
 
-  # Pre-assigning direction to reads has polyA
+  # Reverse complement the whole reads if there is no positive strand in the constructed read
   no_plus_strand <- !any(strand(non_polyA_or_insert(gr)) == "+")
   non_insert_gr <- non_polyA_or_insert(gr)
   has_polyA_reads <- lengths(polyA_gr) > 0
@@ -89,13 +90,14 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
   # assigned_direction[polyA_strands == "-"] <- "left"
   # assigned_direction[polyA_strands == "+"] <- "right"
 
-  # Checking which one LINE1 start is the minimum
+  # Checking the presence of LINE1 insertion
   ins_gr <- gr[seqnames(gr) == "Hot_L1_polyA"]
   no_read_has_polyA <- sum(has_polyA_reads) == 0
   is_insert_body <- seqnames(gr) == "Hot_L1_polyA" & start(gr) < 6000
   has_insert_reads <- sum(sum(is_insert_body)) != 0
   used_origins <- 0L
   if(has_insert_reads){
+    # If has, getting the one having the minimum LINE1 start
     ins_start <- start(ins_gr)
     has_min_insert <- any(ins_start == min(min(ins_start)))
     potential_start <- gr[has_min_insert]
@@ -108,8 +110,10 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
     used_origins <- c(used_origins, selected_start$origin)
   }else{
     if(!no_read_has_polyA){
+      # If the reads group has no insert but polyA and having two genomic regions,
+      # they are potentially transduced regions.
       potential_start <- gr[has_polyA_reads]
-      selected_start <- .get_the_best(potential_start)[[1]] # Yes this is the selected end
+      selected_start <- .get_the_best(potential_start)[[1]] # This is the selected end
       n_region <- length(csaw::mergeWindows(selected_start[!selected_start$is_polyA], tol = search_range)$regions)
       if(n_region == 1){
         return(list(GRangesList(), storage, remaining = NULL))
@@ -118,6 +122,8 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
       return(list(GRangesList(), storage, remaining = NULL))
     }
   }
+
+  # Determining which way they locate (right = 5p, left = 3p)
   non_insert <- as.logical(non_polyA_or_insert(selected_start, return_TF = TRUE))
   insert_in_start <- selected_start[!non_insert]
   start_left <- non_insert[1]
@@ -129,8 +135,8 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
     return(list(GRangesList(), storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
   }
 
-  # Determining the direction of the anchor cluster
   if((start_left + start_right) == 1){
+    # If the direction can be clearly determined
     start_direction <- ifelse(start_left, "left", "right")
     selected_start$type <- "undefined"
     if(start_direction == "left"){
@@ -141,6 +147,8 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
       selected_start_ins <- insert_in_start[1]
     }
     relative_direction <- .overlap_direction(gr, starter, search_range = 10000)
+
+    # The end direction should be on the right hand side if start is on the left, vice verse.
     end_direction <- ifelse(start_direction == "left", "right", "left")
     # is_opposite_to_start <-  assigned_direction == end_direction & relative_direction == end_direction
     is_opposite_to_start <-  relative_direction == end_direction
@@ -153,6 +161,8 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
       return(list(GRangesList(gr[selected_start$origin[1]]), storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
     }
 
+
+    # Determining the paired end
     selected_end <- .get_the_best(possible_end)[[1]]
     selected_end$type <- "undefined"
     if(end_direction == "left"){
@@ -171,17 +181,21 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
                                                      min(which(end_not_insert)))]
   }
   skip_transduction <- FALSE
-  # Orphan transduction
+
   if(sum(start_left + start_right) == 2){
+    # If the constructed reads do not have a cleared direction
     if(sum(has_polyA_reads) > 0){
       if(head_tail_is_overlap){
+        # If head and tail is overlap, a constructed read contains a full insertion of LINE1
         orphan_result <- handle_orphan(selected_start, storage = storage)
         storage <- orphan_result$storage
         result <- gr[orphan_result$selected_gr]
         used_origins <- c(used_origins, orphan_result$selected_gr)
-        skip_transduction <- TRUE
+        skip_transduction <- TRUE # It will skip the transduction inference, sine the insertion was fully constructed.
       }else{
         # Generate all combination and choose the one makes sense
+        # When the donor LINE1 contains transduction, then further jump to the other regions and result as orphan transudction
+        # This is difficult to be determined. Simply generating all the combination and then chose the one make sense will be easier.
         perm <- permutations(n = length(gr), r = 2)
         perm <- perm[apply(perm ,1 , function(x)any(x %in% which(has_polyA_reads))), ]
         gr_perm <- apply(perm, 1, function(x)c(gr[[x[1]]], gr[[x[2]]]))
@@ -215,6 +229,7 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
 
 
   if(!skip_transduction){
+    # Getting reads (things) that can be potential transduced regions
     collected_impossible <- c(starter)
     thing2search <- gr[!(names(gr) %in% c(selected_start$origin, selected_end$origin))]
     current_thing2search <- subsetByOverlaps(thing2search, current_transduced_region + search_range, ignore.strand = TRUE)
@@ -222,7 +237,7 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
     in_the_middle <- GRangesList()
 
     while(length(current_thing2search) > 0){
-      # Checking whether the strands are consistent
+      # It recursively identifies transduced regions based on the selected end.
       combined <- unlist(current_thing2search, use.names = FALSE)
       ol_regions <- subsetByOverlaps(combined, current_transduced_region + search_range, ignore.strand = TRUE)
       ol_regions <- subsetByOverlaps(ol_regions, collected_impossible, invert = TRUE, ignore.strand = TRUE)
@@ -277,7 +292,7 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
       result <- c(gr[unique(selected_start$origin)], in_the_middle, gr[unique(selected_end$origin)])
     }
   }
-  storage <- .get_TSD(result, storage = storage)
+  storage <- .get_TSD(result, storage = storage) # getting the TSD
   return(list(result, storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
 }
 
@@ -287,7 +302,6 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
 #' @importFrom IRanges CharacterList
 #' @importFrom GenomicRanges GRangesList
 #' @importFrom S4Vectors 'elementMetadata<-' elementMetadata split revElements
-
 .rc_granges <- function(x){
   # subsetByOverlaps(usable_clusters, GRanges(8, IRanges(110581038, 110581082)))
   if(length(x) == 0){
@@ -508,10 +522,8 @@ handle_orphan <- function(selected_gr, storage, search_range = 10000){
   end_1 <- insert_in_gr[1]
   end_1$type <- "insert"
   storage <- data_input(storage = storage, end_1, direction = ifelse(end_direction=="right", "left", "right"))
-
   end_2 <- tail(insert_in_gr, 1)
   end_2$type <- "insert"
   storage <- data_input(storage = storage, end_2, direction = ifelse(end_direction=="right", "right", "left"))
   return(list(selected_gr = unique(selected_gr$origin), storage = storage, end_direction = end_direction))
 }
-

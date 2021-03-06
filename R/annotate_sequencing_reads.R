@@ -25,6 +25,7 @@ annotate_constructed_reads <- function(x,
 #' @export
 #' @importFrom Biostrings BStringSet letterFrequency
 has_polyA <- function(x){
+  # Annotating the polyA part of the constructed reads
   j <- letterFrequency(BStringSet(x), letters = c("A", "T", "G", 'C'))
   tot <- rowSums(j)
   a_prop <- j[, 1] / tot
@@ -37,6 +38,7 @@ has_polyA <- function(x){
 }
 
 has_polyT <- function(x){
+  # Annotating the polyT part of the constructed reads
   j <- letterFrequency(BStringSet(x), letters = c("A", "T", "G", 'C'))
   tot <- rowSums(j)
   t_prop <- j[, 2] / tot
@@ -66,6 +68,7 @@ has_polyT <- function(x){
 #' @export
 #' @importFrom stringr 'str_sub'
 .add_back_seq <- function(x, occupied_info, QNAME){
+  #Adding back unmapped part of the constructed read to the annotation
   if(nrow(occupied_info) == 0){
     return(data.table(start = 1,
                       end = nchar(x),
@@ -97,14 +100,17 @@ has_polyT <- function(x){
   return(occupied_info)
 }
 
-
 #' @export
 #' @importFrom IRanges CharacterList
 .internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3),
                                   customised_annotation = list(has_polyA = has_polyA, has_polyT = has_polyT),
                                   ref_1, ref_2)
-  # A wrapper function to annotate clustered reads, the partner reads from the read cluster ,
+  # Annotating the clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
+  # 1. Aligning the sequence to the ref_1, LINE1 in this case
+  # 2. Aligning the remaining part to the ref2, genome in this case
+  # 3. Annotating the whole constructed reads
+  # 4. Identifying the polyA/polyT or customised annotation
   # Written by Cheuk-Ting Law
 {
   strand <- as.character(unique(strand(clusters)))

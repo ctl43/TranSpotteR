@@ -4,6 +4,13 @@
 #' @importFrom BiocGenerics strand start end 'strand<-'
 
 clustering_reads <- function(total, min_peak = 5, size_tol = 0, max_reads = 100){
+  # min_peak, the minimum coverage that the cluster should have
+  # If min_peak = 3
+  #1112221112211111 (peak <= 3)     1122333222111 (peak >= 3)
+  #   --------                        -----------
+  #------             <- filtered   -------        <- included
+  #         -------                     ------
+  #
   gr <- total[total$is_anchor]
   p <- gr[strand(gr) == "+"]
   m <- gr[strand(gr) == "-"]
@@ -14,7 +21,7 @@ clustering_reads <- function(total, min_peak = 5, size_tol = 0, max_reads = 100)
   strand(p_cluster) <- "+"
   strand(m_cluster) <- "-"
 
-  # Identifying the reads members of the anchor clusters
+  # Down sampling the number of reads to max_reads
   ## For positive clusters
   p_ol <- findOverlaps(p_cluster, p)
   p_group <- p_ol@from

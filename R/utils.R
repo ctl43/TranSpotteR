@@ -6,7 +6,8 @@
 
 # Converting read annotation to genomic range
 convert_character2gr <- function(y, extra_info = NULL){
-
+  # Converting character to a GenomicRange object
+  # X:1-100:+ = GRanges("X", IRanges(1, 100), strand = "+")
   is_list <- class(y)%in%c("list", "CompressedCharacterList")
   if(is_list){
     list_grp <- factor(rep(seq_along(y), lengths(y)), levels = seq_along(y))
@@ -49,6 +50,7 @@ convert_character2gr <- function(y, extra_info = NULL){
 #' @export
 #' @importFrom S4Vectors runValue runLength
 rle_to_cigar <- function(x){
+  # Converting the rle object into CIGAR string
   rl <- runLength(x)
   rv <- runValue(x)
   what <- class(x)
@@ -68,6 +70,7 @@ rle_to_cigar <- function(x){
 #' @importFrom GenomicAlignments cigarToRleList
 
 unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query = FALSE){
+  # Operating the strand of CIGAR strand
   out <- rep("", length(cigar))
   is_unmapped <- cigar == "*"
   if(all(is_unmapped)){
@@ -94,6 +97,7 @@ unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query = FALSE
 #' @importFrom IRanges IRanges
 #' @importFrom GenomicAlignments cigarWidthAlongReferenceSpace
 sam2gr <- function(mapping, seqinfo=NULL){
+  # Converting a sam derived table to a GenomicRange object
   if(is.null(mapping)){
     return(GRanges())
   }
@@ -106,7 +110,7 @@ sam2gr <- function(mapping, seqinfo=NULL){
 }
 
 #' @export
-#' @import Biostrings reverseComplement DNAStringSet
+#' @importFrom Biostrings reverseComplement DNAStringSet
 string_reverseComplement <- function(strings){
   as.character(reverseComplement(DNAStringSet(strings)))
 }
@@ -114,6 +118,7 @@ string_reverseComplement <- function(strings){
 #' @export
 #' @importFrom Biostrings reverseComplement DNAStringSet
 convertingHtoS <- function(x, unique_id="QNAME_id"){
+  # Converting the hard clipped reads into soft clipped reads and adding back the hard clipped sequence
   is_rc <- !!bitwAnd(x$FLAG, 0x10)
   is_primary <- !bitwAnd(x$FLAG, 0x100)
   non_supp <- !bitwAnd(x$FLAG, 0x800)
@@ -136,6 +141,7 @@ convertingHtoS <- function(x, unique_id="QNAME_id"){
 
 bwa_alignment <- function(seq, ref="/home/ctlaw/reference/Homo_sapiens/hs37d5/hs37d5_KJ173426.fa",
                           working_dir=NULL, samtools_param="-F 4", call_bwa = "bwa mem ", threads = 5){
+  # A warpper for calling the bwa in R
   if(length(seq)==0){
     return(data.frame("QNAME"= character(), "FLAG"= integer(),
                       "RNAME"= character(), "POS"= integer(),
