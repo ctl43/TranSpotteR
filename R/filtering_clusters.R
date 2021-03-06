@@ -4,7 +4,7 @@
 #' @importFrom GenomeInfoDb seqnames
 #' @importFrom IRanges LogicalList
 
-filter_clusters <- function(x, insert_seqname = "Hot_L1_polyA", additional_filter = "has_polyA")
+filter_clusters <- function(x, insert_seqname = "Hot_L1_polyA", additional_filter = c("has_polyA", "has_polyT"))
   # As the inference process is complicated and takes time,
   # this function is to filter those obviously useless information to reduce the computation time
   # Written by Cheuk-Ting Law
@@ -39,7 +39,8 @@ filter_clusters <- function(x, insert_seqname = "Hot_L1_polyA", additional_filte
   chr_ok <- lengths(unique(seqnames(anchor_gr))) > 1
 
   # 4. Getting regions has more than just genomic sequences
-  has_target <- any(LogicalList(lapply(x$contig_detail, "[[", i = additional_filter)))
+  has_target <- lapply(additional_filter, function(x)any(LogicalList(lapply(x$contig_detail, "[[", i = additional_filter))))
+  has_target <- Reduce("|", has_target)
   orphan_ok <- lengths(anchor_gr) >= 1 & (has_target | lengths(insert_gr) > 0) # Only contains genomic regions but with sequences (could possibly poly-A)
   region_ok <- lengths(anchor_gr) > 1 # Containing more than one 1 genomic regions
 
