@@ -5,17 +5,6 @@
 
 sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), prevent_overload = TRUE, max_n = 100){
   # prevent overloading (need to be moved to another place)
-  # Down sample to an amount that can be handled properly
-  if(prevent_overload){
-    is_large <- lengths(x$members) >= max_n
-    if(sum(is_large) != 0){
-      large <- x[is_large]
-      selected <- lapply(large$members, function(x){set.seed(20190721); sample(seq_along(x), max_n)})
-      large$members <- mapply(function(x, y)x[y], x = large$members, y = selected)
-      large$partners <- mapply(function(x, y)x[y], x = large$partners, y = selected)
-      x[is_large] <- large
-    }
-  }
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
   p <- .internal_construction(p, BPPARAM = BPPARAM)
@@ -59,7 +48,6 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10), pre
   cluster_seq <- split(cluster_seq, cluster_grp)
   cluster_contigs <- bplapply(cluster_seq, function(x)lapply(x, greedy_scs), BPPARAM = BPPARAM)
   cluster_contigs <- unlist(cluster_contigs, recursive = FALSE, use.names = FALSE)
-
 
   ## Tidying up the number reads
   merged_contigs <- rep(CharacterList(character(0L)), length(partner_contigs))
