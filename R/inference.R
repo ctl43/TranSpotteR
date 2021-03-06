@@ -5,7 +5,7 @@
 #' @importFrom S4Vectors List elementMetadata 'elementMetadata<-'
 #' @importFrom data.table setDT
 
-line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
+line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L), search_range = 10000){
   if(length(clusters) == 0){
     return(NULL)
   }
@@ -23,7 +23,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   out <- bpmapply(function(a ,b){
     mapply(.internal_inference, y = a,
            n_reads = b,
-           SIMPLIFY = FALSE)
+           SIMPLIFY = FALSE, search_range = search_range)
     }, a = for_parallel_y, b = for_parallel_n_reads,
     BPPARAM = BPPARAM, SIMPLIFY = FALSE) # Need a better way to store the number of consisted reads
   out <- unlist(out, recursive = FALSE, use.names = FALSE)
@@ -49,7 +49,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
 #' @importFrom GenomicAlignments GAlignments mapToAlignments
 #' @importFrom stringr 'str_sub'
 
-.internal_inference <- function(y, n_reads = NULL, search_range = 1000){
+.internal_inference <- function(y, n_reads = NULL, search_range = 10000){
   # Initialise a list to collect information
   storage <- list("5p_chr" = NA,
                   "5p_genomic_regions_start" = NA,
@@ -91,13 +91,18 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   names(x) <- seq_along(x)
 
   # Finding the Granges having insertion
-  is_insert <- seqnames(x) == "Hot_L1_polyA"
-  ins_gr <- x[is_insert]
+  is_insert <- seqnames(x) == "Hot_L1_polyA" & start(x) < 6010
   has_insert <- any(is_insert)
-
+  ins_gr <- x[is_insert]
+  is_polyA_reads <- any(LogicalList(lapply(elementMetadata(x)[[1]], "[[", "has_polyA")))
+  polyA_info <- x[is_polyA_reads]
   if(sum(has_insert) == 0){
-    # message("No insert regions is found")
-    return(list(GRangesList(), storage))
+    if(sum(is_polyA_reads) == 0){
+      # message("No insert regions is found")
+      return(list(GRangesList(), storage))
+    }else{
+      return(handle_case_with_polyA(polyA_info, search_range = search_range))
+    }
   }
 
   # Choosing the one with the earliest start site
@@ -106,7 +111,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   min_l1 <- min(l1_start)
   is_min_l1 <- l1_start == min_l1
 
-  # If no meaning anchor is found
+  # If no meaningful anchor is found
   if(sum(is_min_l1) == 0 | min_l1 > 6000){
     return(list(GRangesList(), storage))
   }
@@ -167,7 +172,7 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     storage[["3p_genomic_break"]] <- start(starter)
     storage[["3p_insert_start"]] <- start(insert_start)
     storage[["3p_insert_end"]] <- end(insert_start)
-    storage[["3p_insert_break"]] <- start(insert_start)
+    storage[["3p_insert_break"]] <- end(insert_start)
     storage[["3p_insert_orientation"]] <- as.character(strand(insert_start))
     storage[["3p_n_reads"]] <- elementMetadata(starter_gr)[["n_reads"]]
 
@@ -250,7 +255,6 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
   }else{
     end_partner <- sensible
   }
-
 
   end_anno <- elementMetadata(end_partner)$read_annotation[[1]]
   is_insert_in_end <- which(end_anno$has_polyA)
@@ -449,4 +453,175 @@ line1_inference <- function(clusters, BPPARAM = MulticoreParam(workers = 10L)){
     return(p)
     })
   return(do.call(rbind, z))
+}
+
+#' @export
+handle_case_with_polyA <- function(polyA_info, search_range){
+  storage <- list("5p_chr" = NA,
+                  "5p_genomic_regions_start" = NA,
+                  "5p_genomic_regions_end" = NA,
+                  "5p_genomic_break" = NA,
+                  "5p_insert_start" = NA,
+                  "5p_insert_end" = NA,
+                  "5p_insert_orientation" = NA,
+                  "5p_transduced_genomic_region" = NA,
+                  "5p_insert_break" = NA,
+                  "5p_duplicated_seq" = NA,
+                  "5p_is_exact" = NA,
+                  "5p_n_reads" = NA,
+                  "3p_chr" = NA,
+                  "3p_genomic_regions_start" = NA,
+                  "3p_genomic_regions_end" = NA,
+                  "3p_genomic_break" = NA,
+                  "3p_insert_start" = NA,
+                  "3p_insert_end" = NA,
+                  "3p_insert_break" = NA,
+                  "3p_insert_orientation" = NA,
+                  "3p_transduced_genomic_region" = NA,
+                  "3p_duplicated_seq" = NA,
+                  "3p_is_exact" = NA,
+                  "3p_n_reads" = NA,
+                  "has_polyA" = NA,
+                  "overlapping_genomic_region" = NA)
+  selected <- which.max(lengths(polyA_info))
+  polyA_info <- polyA_info[selected]
+  n_reads <- elementMetadata(polyA_info)[["n_reads"]]
+  polyA_dt <- elementMetadata(polyA_info)[[1]][[1]]
+  is_polyA_tmp <- polyA_dt$has_polyA
+  non_polyA <- polyA_dt[!is_polyA_tmp]
+  non_polyA_gr <- convert_character2gr(non_polyA$annotation)
+  merged_tmp <- csaw::mergeWindows(non_polyA_gr, tol =  search_range)
+  if(length(merged_tmp$regions) > 1){
+    if(merged_tmp$ids[1] == tail(merged_tmp$ids, 1)){
+      tmp_1 <- polyA_dt[-c(1, nrow(polyA_dt)),]
+      which_polyA <- which(tmp_1$has_polyA)
+      if(which_polyA == 1){
+        end_direction <- "right"
+      }else{
+        if(which_polyA == length(tmp_1$has_polyA)){
+          end_direction <- "left"
+        }else{
+          return(list(GRangesList(), storage))
+        }
+      }
+
+      if(end_direction == "right"){
+        starter <- non_polyA_gr[1]
+        storage[["5p_chr"]] <- as.character(seqnames(starter))
+        storage[["5p_genomic_regions_start"]] <- start(starter)
+        storage[["5p_genomic_regions_end"]] <- end(starter)
+        storage[["5p_genomic_break"]] <- end(starter)
+        storage[["5p_n_reads"]] <- n_reads
+
+        is_start <- which(polyA_dt$annotation==as.character(starter))
+        # is_insert_in_start <- grep("Hot_L1_polyA", polyA_dt$annotation)
+        is_insert_in_start <- max(which(polyA_dt$has_polyA))
+        start_is_exact <- polyA_dt[is_start]$QNAME == polyA_dt[is_insert_in_start]$QNAME
+        storage[["5p_is_exact"]] <- start_is_exact
+
+        ending <- tail(non_polyA_gr, n = 1)
+        storage[["3p_chr"]] <- as.character(seqnames(ending))
+        storage[["3p_genomic_regions_start"]] <- start(ending)
+        storage[["3p_genomic_regions_end"]] <- end(ending)
+        storage[["3p_genomic_break"]] <- start(ending)
+        storage[["3p_n_reads"]] <- n_reads
+
+        # Checking whether the ending is exact
+        end_genomic <- as.character(ending)
+        is_end <- which(polyA_dt$annotation == end_genomic)
+        is_insert_in_end <- max(which(polyA_dt$has_polyA))
+        end_is_exact <- polyA_dt[is_end]$QNAME == polyA_dt[is_insert_in_end]$QNAME
+        storage[["3p_is_exact"]] <- end_is_exact
+        storage[["3p_transduced_genomic_region"]] <- paste(tmp_1[!tmp_1$has_polyA]$annotation, collapse = ",")
+        storage[["has_polyA"]] <- TRUE
+
+      }
+
+      if(end_direction == "left"){
+        starter <- tail(non_polyA_gr, 1)
+        insert_start <- starter_gr[[1]][!non_insert]
+        insert_start <- insert_start[which.min(start(insert_start))]
+        storage[["3p_chr"]] <- as.character(seqnames(starter))
+        storage[["3p_genomic_regions_start"]] <- start(starter)
+        storage[["3p_genomic_regions_end"]] <- end(starter)
+        storage[["3p_genomic_break"]] <- start(starter)
+        storage[["3p_n_reads"]] <- n_reads
+
+        is_start <- which(polyA_dt$annotation==as.character(starter))
+        is_insert_in_start <- min(polyA_dt$has_polyA)
+        start_is_exact <- polyA_dt[is_start]$QNAME == polyA_dt[is_insert_in_start]$QNAME
+        storage[["3p_is_exact"]] <- start_is_exact
+
+        ending <- non_polyA_gr[1]
+        storage[["5p_chr"]] <- as.character(seqnames(ending))
+        storage[["5p_genomic_regions_start"]] <- start(ending)
+        storage[["5p_genomic_regions_end"]] <- end(ending)
+        storage[["5p_genomic_break"]] <- end(ending)
+        storage[["5p_n_reads"]] <- n_reads
+
+        # Checking whether the ending is exact
+        end_genomic <- as.character(ending)
+        is_end <- which(polyA_dt$annotation == end_genomic)
+        is_insert_in_end <- min(which(polyA_dt$has_polyA))
+        end_is_exact <- polyA_dt[is_end]$QNAME == polyA_dt[is_insert_in_end]$QNAME
+        storage[["5p_is_exact"]] <- end_is_exact
+        storage[["5p_transduced_genomic_region"]] <- paste(tmp_1[!tmp_1$has_polyA]$annotation, collapse = ",")
+        storage[["has_polyA"]] <- TRUE
+        return(storage)
+      }
+
+    }else{
+      if(which(polyA_dt$has_polyA) == 1){
+        end_direction <- "right"
+      }else{
+        if(which(polyA_dt$has_polyA) == length(polyA_dt$has_polyA)){
+          end_direction <- "left"
+        }else{
+          return(list(GRangesList(), storage))
+        }
+      }
+
+      if(end_direction == "left"){
+        ending <- non_polyA_gr[1]
+        tmp_1 <- non_polyA_gr[-1, ]
+        storage[["5p_chr"]] <- as.character(seqnames(ending))
+        storage[["5p_genomic_regions_start"]] <- start(ending)
+        storage[["5p_genomic_regions_end"]] <- end(ending)
+        storage[["5p_genomic_break"]] <- end(ending)
+        storage[["5p_n_reads"]] <- n_reads
+
+        # Checking whether the ending is exact
+        end_genomic <- as.character(ending)
+        is_end <- which(polyA_dt$annotation == end_genomic)
+        is_insert_in_end <- min(which(polyA_dt$has_polyA))
+        end_is_exact <- polyA_dt[is_end]$QNAME == polyA_dt[is_insert_in_end]$QNAME
+        storage[["5p_is_exact"]] <- end_is_exact
+        storage[["5p_transduced_genomic_region"]] <- paste(as.character(tmp_1), collapse = ",")
+        storage[["has_polyA"]] <- TRUE
+        return(list(polyA_info, storage))
+      }
+
+      if(end_direction == "right"){
+        ending <- tail(non_polyA_gr, n = 1)
+        tmp_1 <- head(non_polyA_gr, -1)
+        storage[["3p_chr"]] <- as.character(seqnames(ending))
+        storage[["3p_genomic_regions_start"]] <- start(ending)
+        storage[["3p_genomic_regions_end"]] <- end(ending)
+        storage[["3p_genomic_break"]] <- start(ending)
+        storage[["3p_n_reads"]] <- n_reads
+
+        # Checking whether the ending is exact
+        end_genomic <- as.character(ending)
+        is_end <- which(polyA_dt$annotation == end_genomic)
+        is_insert_in_end <- max(which(polyA_dt$has_polyA))
+        end_is_exact <- polyA_dt[is_end]$QNAME == polyA_dt[is_insert_in_end]$QNAME
+        storage[["3p_is_exact"]] <- end_is_exact
+        storage[["3p_transduced_genomic_region"]] <- paste(as.character(tmp_1), collapse = ",")
+        storage[["has_polyA"]] <- TRUE
+        return(list(polyA_info, storage))
+      }
+    }
+  }else{
+    return(list(GRangesList(), storage))
+  }
 }
