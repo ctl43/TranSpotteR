@@ -6,7 +6,7 @@
 
 get_unmapped_clipped_read <- function(x, include_middle_unmapped=TRUE){
   # This function extracts the unmapped, clipped sequence
-  # and the umapped sequence that is in the middle of a read from sam derived input.
+  # and the umapped sequence that is in the middle of a read.
 
   x$QNAME <- as.character(x$QNAME)
 
