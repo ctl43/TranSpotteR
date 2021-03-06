@@ -3,7 +3,7 @@
 #' @importFrom ShortRead writeFasta
 
 bwa_alignment <- function(seq, ref="/home/ctlaw/reference/Homo_sapiens/hs37d5/hs37d5_KJ173426.fa",
-                         working_dir=NULL, samtools_param="-F 4", call_bwa = "bwa mem ", threads = 1){
+                         working_dir=NULL, samtools_param="-F 4", call_bwa = "bwa mem ", threads = 5){
   if(length(seq)==0){
     return(data.frame("QNAME"= character(), "FLAG"= integer(),
                       "RNAME"= character(), "POS"= integer(),
