@@ -1,7 +1,7 @@
 # TranSpotteR
-This package aims to identify LINE1 insertion in the genome.
+This package aims to identify annotated and unannotated LINE1 insertion in the genome.
 
-## Procedure
+## Overall workflow
 1. Extracting useful reads (extract_read)
 2. Clustering reads (clustering_reads)
 3. De novo assembly of the reads clusters (sequence_construction)
