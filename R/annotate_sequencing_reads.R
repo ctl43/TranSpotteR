@@ -14,7 +14,7 @@ annotate_constructed_reads <- function(x,
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
   out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, ref_1 = ref_1, ref_2 = ref_2,
-                  customised_annotation = list(has_polyA = has_polyA))
+                  customised_annotation = list(has_polyA = has_polyA, has_polyT = has_polyT))
   out <- rbind(out[[1]], out[[2]])
   names(out) <- c("contig_detail", "nreads", "cluster_origin")
   return(out)
@@ -28,12 +28,23 @@ has_polyA <- function(x){
   j <- letterFrequency(BStringSet(x), letters = c("A", "T", "G", 'C'))
   tot <- rowSums(j)
   a_prop <- j[, 1] / tot
-  t_prop <- j[, 2] / tot
-  out <- (a_prop > 0.8|t_prop > 0.8) & (nchar(x) > 5)
+  out <- (a_prop > 0.85) & (nchar(x) > 5)
   out[grepl(":", x)] <- FALSE
   converted <- convert_character2gr(x[grepl(":", x)])
-  anno_is_polyA <- seqnames(converted)=="Hot_L1_polyA" & end(converted) > 6000
+  anno_is_polyA <- seqnames(converted)=="Hot_L1_polyA" & strand(converted) =="+" & end(converted) > 6000
   out[grepl(":", x)] <- anno_is_polyA
+  out
+}
+
+has_polyT <- function(x){
+  j <- letterFrequency(BStringSet(x), letters = c("A", "T", "G", 'C'))
+  tot <- rowSums(j)
+  t_prop <- j[, 2] / tot
+  out <- (t_prop > 0.85) & (nchar(x) > 5)
+  out[grepl(":", x)] <- FALSE
+  converted <- convert_character2gr(x[grepl(":", x)])
+  anno_is_polyT <- seqnames(converted)=="Hot_L1_polyA" & strand(converted) =="-" & end(converted) > 6000
+  out[grepl(":", x)] <- anno_is_polyT
   out
 }
 
@@ -90,7 +101,8 @@ has_polyA <- function(x){
 #' @export
 #' @importFrom IRanges CharacterList
 .internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3),
-                                  customised_annotation = list(has_polyA = has_polyA), ref_1, ref_2)
+                                  customised_annotation = list(has_polyA = has_polyA, has_polyT = has_polyT),
+                                  ref_1, ref_2)
   # A wrapper function to annotate clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
   # Written by Cheuk-Ting Law
