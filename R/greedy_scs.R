@@ -31,20 +31,14 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, m
   colnames(info) <- c("seq1", "seq2")
   info <- data.table(info, setDT(overlapper(vec[info[[1]]], vec[info[[2]]])))
   info <- .reorder_seq_info(info)
-  # Filtering abberent alignment
-  info <- info[info$pid > min_pid & info$aln_ol_len > min_len &
-                 (info$seq1_ol_start == 0L | info$seq2_ol_start == 0L) &
-                 !(info$seq1_left_clipped_len == 0L & info$seq1_right_clipped_len ==0L) &
-                 !(info$seq2_left_clipped_len == 0L & info$seq2_right_clipped_len ==0L), ]
-
+  # Getting alignment with high similarity
+  info <- info[info$pid > min_pid & info$aln_ol_len > min_len & (info$seq1_ol_start == 1L | info$seq2_ol_start == 1L), ]
   info <- info[order(info$aln_ol_len, decreasing = TRUE), ]
 
-  # Converting to 1-based index
-  info$seq1_ol_start <- info$seq1_ol_start + 1L
-  info$seq1_ol_end <- info$seq1_ol_end + 1L
-  info$seq2_ol_start <- info$seq2_ol_start + 1L
-  info$seq2_ol_end <- info$seq2_ol_end + 1L
-  setkeyv(info, c("seq1", "seq2"))
+  # Filtering out reads that are fully covered by other reads
+  fully_covered <- which_is_fully_covered(info)
+  info <- info[!(seq1 %in%  fully_covered | seq2 %in% fully_covered)]
+  vec <- vec[!names(vec) %in% fully_covered]
 
   while(nrow(info) > 0){
     selected <- info[1L, ]
@@ -54,19 +48,15 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, m
                       substr(vec[right_idx], selected$seq2_ol_start, selected$seq2_len))
     names(new_seq) <- paste0(selected$seq1, "_", selected$seq2)
     vec <- vec[!names(vec) %in% c(selected$seq1, selected$seq2)]
+
+    # Only overlapping the newly combined sequence and the total sequence
     ol <- overlapper(rep(new_seq, length(vec)), vec)
     suppressWarnings(ol <- data.table(data.table(seq1 = names(new_seq), seq2 = names(vec)), ol))
-    ol <- ol[ol$pid > min_pid & ol$aln_ol_len > min_len &
-               (ol$seq1_ol_start == 0L | ol$seq2_ol_start == 0L) &
-               !(ol$seq1_left_clipped_len == 0L & ol$seq1_right_clipped_len == 0L) &
-               !(ol$seq2_left_clipped_len == 0L & ol$seq2_right_clipped_len == 0L), ]
     ol <- .reorder_seq_info(ol)
-    ol$seq1_ol_start <- ol$seq1_ol_start + 1L
-    ol$seq1_ol_end <- ol$seq1_ol_end + 1L
-    ol$seq2_ol_start <- ol$seq2_ol_start + 1L
-    ol$seq2_ol_end <- ol$seq2_ol_end + 1L
+    ol <- ol[ol$pid > min_pid & ol$aln_ol_len > min_len & (ol$seq1_ol_start == 1L | ol$seq2_ol_start == 1L), ]
+    fully_covered <- which_is_fully_covered(ol)
     vec <- c(new_seq, vec)
-    info <- info[!(seq1 %in% c(left_idx, right_idx) | seq2 %in% c(left_idx, right_idx))]
+    info <- info[!(seq1 %in% c(left_idx, right_idx, fully_covered) | seq2 %in% c(left_idx, right_idx, fully_covered))]
     info <- rbindlist(list(ol, info))
     info <- info[order(info$aln_ol_len, decreasing = TRUE), ]
   }
@@ -76,7 +66,6 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, m
   solo_id <- ass_id[!grepl("_", ass_id)]
   non_solo_id <- grep("_", ass_id, value = TRUE)
   member_idx <- strsplit(non_solo_id, "_")
-
 
   pairwise_aln <- mapply(function(x, y) overlapper(rep(y, length(x)), original_vec[x]), x = member_idx, y = vec[non_solo_id], SIMPLIFY = FALSE)
   msa_view_aln <- lapply(pairwise_aln, function(x)msa_view(x[["seq1_aln"]], x[["seq2_aln"]]))
@@ -117,6 +106,13 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, m
   }
 }
 
+which_is_fully_covered <- function(info){
+  fully_covered_1 <- info$seq1_left_clipped_len == 0L & info$seq1_right_clipped_len ==0L
+  fully_covered_2 <- info$seq2_left_clipped_len == 0L & info$seq2_right_clipped_len ==0L
+  fully_covered_1[fully_covered_1 & fully_covered_2] <- FALSE
+  c(info$seq1[fully_covered_1], covered_2 = info$seq2[fully_covered_2])
+}
+
 # Function to determine a pair of sequences that which one is of the left hand side
 .reorder_seq_info <- function(info){
   # Determining whether seq1 is on the left side
@@ -132,6 +128,13 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, m
   for(i in seq_along(info_name_2)){
     ordered_info[[info_name_2[i]]][seq1_on_right] <- info[[info_name_1[i]]][seq1_on_right]
   }
+
+  # Converting to 1-based index
+  ordered_info$seq1_ol_start <- ordered_info$seq1_ol_start + 1L
+  ordered_info$seq1_ol_end <- ordered_info$seq1_ol_end + 1L
+  ordered_info$seq2_ol_start <- ordered_info$seq2_ol_start + 1L
+  ordered_info$seq2_ol_end <- ordered_info$seq2_ol_end + 1L
+  setkeyv(ordered_info, c("seq1", "seq2"))
   ordered_info
 }
 
