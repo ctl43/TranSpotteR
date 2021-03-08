@@ -6,7 +6,7 @@
 #' @importFrom S4Vectors grepl
 #' @importFrom BiocGenerics match
 
-relating_cluster <- function(info, insert_seqname = "Hot_L1_polyA", overlap_distance = 1000){
+relating_cluster <- function(info, insert_seqname = "Hot_L1_polyA", overlap_distance = 10000){
   # Getting the anchor information
   anno <- info[[1]]
   anno <- CharacterList(lapply(anno, "[[", i = "annotation"))
