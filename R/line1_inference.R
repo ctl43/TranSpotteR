@@ -179,6 +179,7 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
     current_transduced_region <- selected_end[ifelse(end_direction == "left",
                                                      max(which(end_not_insert)),
                                                      min(which(end_not_insert)))]
+    current_transduced_region <- subsetByOverlaps(current_transduced_region, starter + search_range, invert = TRUE)
   }
   skip_transduction <- FALSE
 
@@ -216,6 +217,7 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
         current_transduced_region <- selected_end[ifelse(end_direction == "left",
                                                          max(which(end_not_insert)),
                                                          min(which(end_not_insert)))]
+        current_transduced_region <- subsetByOverlaps(current_transduced_region, starter + search_range, invert = TRUE)
       }
     }else{
       return(list(GRangesList(), storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
