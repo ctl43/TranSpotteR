@@ -4,8 +4,8 @@ extract_reads <- function(bam,
                           readin = 2.5E6, tmp_dir = NULL,
                           out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
                           samtools = "samtools",
-                          interested_region = "/home/ctlaw/dicky/reference/RepeatMasker/L1PA1_2_3.txt",
-                          interested_seq = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
+                          interested_region = NULL,
+                          interested_seq = NULL,
                           keep_intermediate = FALSE,
                           threads = 5){
 # A wrapper to extract discordant reads by calling samtools and filtering those obvious non-informatic read pairs

@@ -5,8 +5,8 @@
 
 # A wrapper for read annotation
 annotate_constructed_reads <- function(x,
-                                       ref_1 = "~/dicky/reference/fasta/line1_reference/hot_L1_polyA.fa",
-                                       ref_2 = "/home/ctlaw/reference/Homo_sapiens/hs37d5/hs37d5_KJ173426.fa",
+                                       ref_1 = NULL,
+                                       ref_2 = NULL,
                                        BPPARAM = MulticoreParam(workers = 3L))
   # A wrapper function process both plus and minus stranded read clusters.
   # Written by Cheuk-Ting Law
