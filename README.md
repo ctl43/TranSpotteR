@@ -15,7 +15,21 @@ The uniquely mapped (MAPQ >= 10) reads are clustered and the cluster should have
 
 ### 3. Locally assembling reads clusters (sequence_construction)
 For the assembly step, an own assembly function was writtern in R combining C++ via Rcpp due to the lack of a sequence assembly function writtern in R.
-The sequence assembly method is Overlaps-Layout-Consensus(OLC).
+The sequence assembly employed the Overlaps-Layout-Consensus(OLC) method.
+It assembles the clustered reads and their partner reads, then it attempts to assemble the contig generated from the clustered reads and the contig from the partner reads.
 
-4. Annotating the constructed reads (annotate_constructed_reads)
-5. Inferring the LINE1 integration (line1_inference)
+### 4. Annotating the constructed reads (annotate_constructed_reads)
+The contigs are then annotated by aligning to the sequence of interest and the genomic.
+Contigs are aligned to the sequence of interest (Hot_L1_polyA, in this case) and parts of the read that are not aligned will be collected and proceed to the next alignment to the genome.
+The annotations from both aligments are combined and be labelled to the contigs.
+For example, ACTCGTGCTTTTCGCTATCGTAGATCGACTAGCA will be annotated as 1:1-10:+ TTCGCTAT 22:90-104:-
+In principle, this read annotation function can apply to many situations.
+It does not only limit to annotate LINE1, it can also annotate other sequence of interest, for example, virus genome, integrated plasmid and other ERV.
+Apart from  annotating the sequence of interest, if part of reads mapped to two different genomic regions, the function will also annotated them.
+Therefore, it can be extended to chromosomal translocation, which will be done in the future.
+
+### 5. Inferring the LINE1 integration (line1_inference)
+Under development and will be out soon.
+
+## In the future
+The program will extend its function to detecting chromosomal translocation and virus insertion.
