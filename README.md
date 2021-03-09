@@ -31,5 +31,16 @@ Therefore, it can be extended to chromosomal translocation, which will be done i
 ### 5. Inferring the LINE1 integration (line1_inference)
 Under development and will be out soon.
 
+## Example usage
+```
+extract_read(bam = "tesing.bam", out_dir = getwd())
+reads <- import_files(extracted = "tesing_extracted.txt", anchor_min_mapq = 10)
+clusters <- clustering_reads(reads)
+clusters <- sequence_construction(clusters)
+annotation <- annotate_constructed_reads(clusters)
+result <- line1_inference(annotation) # under development
+```
+
 ## In the future
 The functions of this package will be extended to detecting chromosomal translocation and virus insertion soon.
+
