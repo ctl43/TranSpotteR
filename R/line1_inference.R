@@ -1,3 +1,27 @@
+
+line1_inference <- function(annos){
+  # It recursively infers LINE1 insertion from a group of annotated reads.
+  inferred <- single_inference(annos)
+  collected_1 <- list(inferred[[1]])
+  collected_2 <- list(inferred[[2]])
+  while(!is.null(inferred$remaining)){
+    inferred <- single_inference(inferred$remaining)
+    if(nrow(inferred[[1]]) > 0){
+      collected_1 <- c(collected_1, list(inferred[[1]]))
+      collected_2 <- c(collected_2, list(inferred[[2]]))
+    }
+  }
+
+
+
+  collected_2 <- rbindlist(collected_2)
+  GRanges(c(collected_2$genomic_rname_5p,
+            collected_2$genomic_rname_3p),
+          c(collected_2$genomic_start_5p,
+            collected_2$genomic_start_3p)) + 10000
+}
+# rbindlist(c(collected_1, list(empty_dt)))
+
 #' @export
 #' @importFrom GenomeInfoDb seqnames
 #' @importFrom GenomicAlignments GAlignments mapToAlignments
@@ -9,7 +33,7 @@
 #' @importFrom GenomicRanges GRangesList
 #' @importFrom data.table rbindlist
 
-line1_inference <- function(x, n_reads = NULL, search_range = 10000){
+single_inference <- function(x, n_reads = NULL, search_range = 10000){
   # This functions infers the line1 insertion from the annotated constructed reads.
   storage <- list("genomic_qname_5p" = NA,
                   "genomic_rname_5p" = NA,
@@ -46,6 +70,19 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
                   "has_polyA" = NA,
                   "overlapping_genomic_region" = NA)
 
+  empty_dt <- data.table("start" = integer(),
+                         "end" = integer(),
+                         "width" = integer(),
+                         "QNAME" = character(),
+                         "annotation" = character(),
+                         "cigar" = character(),
+                         "seq" = character(),
+                         "has_polyA" = logical(),
+                         "has_polyT" = logical(),
+                         "origin" = factor(),
+                         "n_reads" = integer(),
+                         "processed" = character())
+
   # Preprocessing and reorganizing the data
   n_anno <- sapply(x, nrow)
   if(!is.null(n_reads)){
@@ -72,9 +109,6 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
   gr <- convert_character2gr(y$processed, extra_info = extra_info)
   polyA_gr <- gr[gr$is_polyA]
   polyA_gr <- split(polyA_gr, polyA_gr$origin)
-  # polyA_strands <- split(strand(polyA_gr), polyA_gr$origin)
-  # polyA_strands[lengths(polyA_strands) != 1] <- RleList(factor("*", levels = c("+", "-", "*")))
-  # polyA_strands <- as.character(polyA_strands)
   gr <- split(gr, gr$origin)
   elementMetadata(gr)$read_annotation <- split(x, x$origin)
 
@@ -84,11 +118,6 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
   has_polyA_reads <- lengths(polyA_gr) > 0
   needed_to_be_rc <- no_plus_strand
   gr[needed_to_be_rc] <- .rc_granges(gr[needed_to_be_rc])
-  # polyA_strands[polyA_strands == "+" & needed_to_be_rc] <- "-"
-  # polyA_strands[polyA_strands == "-" & needed_to_be_rc] <- "+"
-  # assigned_direction <- rep("undetermined", length(gr))
-  # assigned_direction[polyA_strands == "-"] <- "left"
-  # assigned_direction[polyA_strands == "+"] <- "right"
 
   # Checking the presence of LINE1 insertion
   ins_gr <- gr[seqnames(gr) == "Hot_L1_polyA"]
@@ -116,10 +145,10 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
       selected_start <- .get_the_best(potential_start)[[1]] # This is the selected end
       n_region <- length(csaw::mergeWindows(selected_start[!selected_start$is_polyA], tol = search_range)$regions)
       if(n_region == 1){
-        return(list(GRangesList(), storage, remaining = NULL))
+        return(list(empty_dt, storage, remaining = NULL))
       }
     }else{
-      return(list(GRangesList(), storage, remaining = NULL))
+      return(list(empty_dt, storage, remaining = NULL))
     }
   }
 
@@ -132,7 +161,7 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
   starter <- selected_start[non_insert]
   used_origins <- c(used_origins, selected_start$origin)
   if(length(csaw::mergeWindows(starter, tol = search_range)$regions) > 2 & !head_tail_is_overlap){
-    return(list(GRangesList(), storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
+    return(list(empty_dt, storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
   }
 
   if((start_left + start_right) == 1){
@@ -150,7 +179,6 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
 
     # The end direction should be on the right hand side if start is on the left, vice verse.
     end_direction <- ifelse(start_direction == "left", "right", "left")
-    # is_opposite_to_start <-  assigned_direction == end_direction & relative_direction == end_direction
     is_opposite_to_start <-  relative_direction == end_direction
     possible_end <- gr[is_opposite_to_start & has_polyA_reads & (!seq_along(gr) %in% selected_start$origin)]
     selected_start$type[selected_start == selected_start_ins] <- "insert"
@@ -158,7 +186,10 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
     storage <- data_input(storage = storage, selected_start, direction = start_direction)
 
     if(length(possible_end) == 0){
-      return(list(GRangesList(gr[selected_start$origin[1]]), storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
+      selected_anno_out <- elementMetadata(gr[selected_start$origin[1]])[["read_annotation"]]
+      return(list(rbindlist(selected_anno_out),
+                  storage,
+                  remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
     }
 
 
@@ -220,12 +251,12 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
         current_transduced_region <- subsetByOverlaps(current_transduced_region, starter + search_range, invert = TRUE)
       }
     }else{
-      return(list(GRangesList(), storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
+      return(list(empty_dt, storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
     }
   }
 
   if((start_left + start_right) == 0){
-    return(list(GRangesList(), storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
+    return(list(empty_dt, storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
   }
 
 
@@ -295,7 +326,8 @@ line1_inference <- function(x, n_reads = NULL, search_range = 10000){
     }
   }
   storage <- .get_TSD(result, storage = storage) # getting the TSD
-  return(list(result, storage, remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
+  return(list(rbindlist(elementMetadata(result)[["read_annotation"]]), storage,
+              remaining = elementMetadata(gr)[["read_annotation"]][-unique(used_origins)]))
 }
 
 
@@ -413,6 +445,9 @@ is_overlap <- function(query, reference){
 .get_the_best <- function(y, search_range = 10000){
   # Gathering information to judge the best guess
   # Priority: Most information > longest informative reads
+  if(length(y)==1){
+    return(y)
+  }
   n_info <- lengths(lapply(y, function(x)csaw::mergeWindows(x, tol = search_range)$regions))
   most_informative <- n_info == max(n_info)
   longest <- seq_along(y) %in% which.max(sum(width(y)))
