@@ -184,5 +184,121 @@ bwa_alignment <- function(seq, ref="/home/ctlaw/reference/Homo_sapiens/hs37d5/hs
     bwa_aln$QNAME <- as.character(bwa_aln$QNAME)
     bwa_aln
   }
-
 }
+
+
+#' @export
+first_element <- function(x, invert = FALSE){
+  grp <- factor(rep(seq_along(x), lengths(x)), levels = seq_along(x))
+  flat <- unlist(x, use.names = FALSE)
+  is_dup <- duplicated(grp)
+  if(invert){
+    return(split(flat[is_dup], grp[is_dup]))
+  }else{
+    return(split(flat[!is_dup], grp[!is_dup]))
+  }
+}
+
+#' @export
+last_element <- function(x, invert = FALSE){
+  grp <- factor(rep(seq_along(x), lengths(x)), levels = seq_along(x))
+  flat <- unlist(x, use.names = FALSE)
+  rev_grp <- rev(grp)
+  rev_flat <- rev(flat)
+  is_dup <- duplicated(rev_grp)
+  if(invert){
+    return(split(rev(rev_flat[is_dup]), rev(rev_grp[is_dup])))
+  }else{
+    return(split(rev(rev_flat[!is_dup]), rev(rev_grp[!is_dup])))
+  }
+}
+
+#' @export
+#' @importFrom BiocGenerics unstrand start end
+#' @importFrom IRanges LogicalList IntegerList
+how_many_regions_in_range <- function(x, tol = 10000){
+  n <- lengths(x)
+  grp <- factor(rep(seq_along(x), n), levels = seq_along(x))
+  flat <- unlist(x)
+  flat$grp <- grp
+  flat <- sort(unstrand(flat))
+  no_first_start <- start(flat)[duplicated(flat$grp)]
+  no_first_start <- IntegerList(split(no_first_start, flat$grp[duplicated(flat$grp)]))
+  no_last_end <- rev(rev(end(flat))[duplicated(rev(flat$grp))])
+  no_last_end <- IntegerList(split(no_last_end, rev(rev(flat$grp)[duplicated(rev(flat$grp))])))
+  dist_diff <- no_first_start - no_last_end
+  seq_is_dup <- duplicated(split(seqnames(flat), flat$grp))
+  tmp_grp <- factor(rep(seq_along(seq_is_dup), lengths(seq_is_dup)), levels = seq_along(seq_is_dup))
+  tmp_1 <- unlist(seq_is_dup, use.names = FALSE)
+  seq_is_dup <- LogicalList(split(tmp_1[duplicated(tmp_grp)], tmp_grp[duplicated(tmp_grp)]))
+  dist_is_diff <- abs(dist_diff) > tol
+  n_diff_regions <- sum(!((!dist_is_diff) & seq_is_dup)) + 1
+  n_diff_regions[lengths(x)==0] <- 0
+  n_diff_regions
+}
+
+
+merge_glist <- function(x, tol = 10000){
+  n <- lengths(x)
+  grp <- factor(rep(seq_along(x), n), levels = seq_along(x))
+  flat <- unlist(x)
+  strand(flat) <- "*"
+  flat$grp <- grp
+  flat <- sort(unstrand(flat))
+  no_first_start <- start(flat)[duplicated(flat$grp)]
+  no_first_start <- IntegerList(split(no_first_start, flat$grp[duplicated(flat$grp)]))
+  no_last_end <- rev(rev(end(flat))[duplicated(rev(flat$grp))])
+  no_last_end <- IntegerList(split(no_last_end, rev(rev(flat$grp)[duplicated(rev(flat$grp))])))
+  dist_diff <- no_first_start - no_last_end
+  seq_is_dup <- duplicated(split(seqnames(flat), flat$grp))
+  tmp_grp <- factor(rep(seq_along(seq_is_dup), lengths(seq_is_dup)), levels = seq_along(seq_is_dup))
+  tmp_1 <- unlist(seq_is_dup, use.names = FALSE)
+  seq_is_dup <- LogicalList(split(tmp_1[duplicated(tmp_grp)], tmp_grp[duplicated(tmp_grp)]))
+  dist_is_diff <- abs(dist_diff) > tol
+  is_ol <- (!dist_is_diff) & seq_is_dup
+  if(sum(sum(is_ol)) == 0){
+    return(x)
+  }
+  ol_grp <- rep(seq_along(is_ol), lengths(is_ol))
+  is_ol <- LogicalList(split(c(rep(FALSE, length(is_ol)), unlist(is_ol, use.names = FALSE)),
+                             c(seq_along(is_ol), ol_grp))) # appending a TRUE at the first position
+  is_ol[[which(lengths(x) == 0)]] <- logical(0L)
+  merged_grp <- cumsum(!is_ol)
+  ordered_flat <- unlist(split(flat, flat$grp))
+  merged_grp <- paste0(unlist(merged_grp), "_", ordered_flat$grp)
+  final_grp <- unlist(unique(IntegerList(split(as.integer(ordered_flat$grp), merged_grp))), use.names = FALSE)
+  final_grp <- factor(final_grp, levels = levels(grp))
+  out <- split(unlist(range(split(ordered_flat, merged_grp)), use.names = FALSE), final_grp)
+  return(out)
+}
+
+grl_to_character <- function(x){
+  grp <- factor(rep(seq_along(x), lengths(x)), levels = seq_along(x))
+  x <- unlist(x)
+  x <- as.character(x)
+  out <- paste(CharacterList(split(x, grp)), collapse = ",")
+  out[out == ""] <- NA
+  return(out)
+}
+
+#' @export
+extract_element_at <- function (x, at, invert = FALSE){
+  grp <- factor(rep(seq_along(x), lengths(x)), levels = seq_along(x))
+  pos <- unlist(cumsum(IntegerList(split(duplicated(grp), grp))) + 1)
+  flat <- unlist(x, use.names = FALSE)
+  selected <- flat[pos == 2]
+  selected_grp <- grp[pos == 2]
+  if(invert == TRUE){
+    split(flat[pos != at], grp[pos != at])
+  }else{
+    split(flat[pos == at], grp[pos == at])
+  }
+}
+
+
+#
+# test <- GRangesList(GRanges(c(1, 1, 2, 2), IRanges(c(1, 5, 2, 1), c(10, 20, 1000,50))),GRanges(),
+#                     GRanges(c(1, 1, 3,3), IRanges(c(100000, 500000, 1, 1000), c(200000, 600000, 2, 50000))))
+# # test <- rep(test, 10)
+# merged_out <- merge_glist(test, tol = 1000)
+# csaw_out <- lapply(test, function(x)csaw::mergeWindows(x, tol = 1000)$regions)
