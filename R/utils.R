@@ -237,7 +237,7 @@ how_many_regions_in_range <- function(x, tol = 10000){
   n_diff_regions
 }
 
-
+#' @export
 merge_glist <- function(x, tol = 10000){
   n <- lengths(x)
   grp <- factor(rep(seq_along(x), n), levels = seq_along(x))
@@ -272,6 +272,8 @@ merge_glist <- function(x, tol = 10000){
   return(out)
 }
 
+#' @export
+#' @importFrom BiocGenerics paste
 grl_to_character <- function(x){
   grp <- factor(rep(seq_along(x), lengths(x)), levels = seq_along(x))
   x <- unlist(x)
