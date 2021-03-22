@@ -14,40 +14,30 @@ annotate_constructed_reads <- function(x,
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
   out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, ref_1 = ref_1, ref_2 = ref_2,
-                  customised_annotation = list(has_polyA = has_polyA, has_polyT = has_polyT))
+                  customised_annotation = list(anno_polyA))
   out <- rbind(out[[1]], out[[2]])
   names(out) <- c("contig_detail", "nreads", "cluster_origin")
+  out$cluster_region <- as.character(x[out$cluster_origin])
   return(out)
 }
 
 ##################################
 ##################################
-#' @export
+
 #' @importFrom Biostrings BStringSet letterFrequency
-has_polyA <- function(x){
+anno_polyA <- function(x){
   # Annotating the polyA part of the constructed reads
   j <- letterFrequency(BStringSet(x), letters = c("A", "T", "G", 'C'))
   tot <- rowSums(j)
   a_prop <- j[, 1] / tot
-  out <- (a_prop > 0.85) & (nchar(x) > 5)
-  out[grepl(":", x)] <- FALSE
-  converted <- convert_character2gr(x[grepl(":", x)])
-  anno_is_polyA <- seqnames(converted)=="Hot_L1_polyA" & strand(converted) =="+" & end(converted) > 6000
-  out[grepl(":", x)] <- anno_is_polyA
-  out
-}
-
-has_polyT <- function(x){
-  # Annotating the polyT part of the constructed reads
-  j <- letterFrequency(BStringSet(x), letters = c("A", "T", "G", 'C'))
-  tot <- rowSums(j)
+  is_pa <- (a_prop > 0.85) & (nchar(x) > 5)
   t_prop <- j[, 2] / tot
-  out <- (t_prop > 0.85) & (nchar(x) > 5)
-  out[grepl(":", x)] <- FALSE
-  converted <- convert_character2gr(x[grepl(":", x)])
-  anno_is_polyT <- seqnames(converted)=="Hot_L1_polyA" & strand(converted) =="-" & end(converted) > 6000
-  out[grepl(":", x)] <- anno_is_polyT
-  out
+  is_pt <- (t_prop > 0.85) & (nchar(x) > 5)
+  is_pt <- !grepl(":", x) & is_pt
+  is_pa <- !grepl(":", x) & is_pa
+  x[is_pa] <- paste0("polyA", ":", 1, "-", nchar(x[is_pa]), ":", strand = "+")
+  x[is_pt] <- paste0("polyA", ":", 1, "-", nchar(x[is_pt]), ":", strand = "-")
+  x
 }
 
 #' @export
@@ -103,7 +93,7 @@ has_polyT <- function(x){
 #' @export
 #' @importFrom IRanges CharacterList
 .internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3),
-                                  customised_annotation = list(has_polyA = has_polyA, has_polyT = has_polyT),
+                                  customised_annotation = list(anno_polyA),
                                   ref_1, ref_2)
   # Annotating the clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
@@ -307,15 +297,8 @@ has_polyT <- function(x){
   combined_read_loc <- combined_read_loc[order(factor(combined_read_loc$QNAME, levels = names(seq))),]
 
   # Customized annotation
-  if(!is.null(customised_annotation)){
-    if(any(is.null(names(customised_annotation)))){
-      names(customised_annotation) <- paste0("customised_anno_", seq_along(customised_annotation))
-    }
-    extra <- lapply(customised_annotation, function(p)p(combined_read_loc$annotation))
-    setDT(extra)
-  }else{
-    extra <- NULL
+  for(i in customised_annotation){
+    combined_read_loc$annotation <- i(combined_read_loc$annotation)
   }
-
-  return(cbind(combined_read_loc, extra))
+  return(combined_read_loc)
 }
