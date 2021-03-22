@@ -1,7 +1,6 @@
 #' @export
 #' @importFrom Rsamtools bamFlagAsBitMatrix
-extract_reads <- function(bam,
-                          readin = 2.5E6, tmp_dir = NULL,
+extract_reads <- function(bam, tmp_dir = NULL,
                           out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
                           samtools = "samtools",
                           interested_region = NULL,
