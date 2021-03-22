@@ -6,7 +6,7 @@
 #' @importFrom  GenomicAlignments cigarWidthAlongReferenceSpace
 
 import_files <- function(extracted, include_unmapped = TRUE,
-                         anchor_min_mapq = 10){
+                         anchor_min_mapq = 10, seq_info){
   dt <- .internal_import(extracted)
   # Determine split reads (multi and unique mapped reads are on the same reads)
   dt$is_anchor <- dt$MAPQ >= anchor_min_mapq & !dt$is_supp
@@ -14,7 +14,6 @@ import_files <- function(extracted, include_unmapped = TRUE,
   dt[dt$CIGAR=="*", ]$RNAME <- "UNMAPPED"
   dt[dt$CIGAR=="*", ]$POS <- 1
   dt[dt$CIGAR=="*", ]$CIGAR <- paste0(nchar(dt$SEQUENCE[dt$CIGAR=="*"]),"M")
-  seq_info <- readRDS("/home/ctlaw/dicky/reference/hs37d5_seq_info.rds")
   seq_info@seqnames <- c(seq_info@seqnames, "UNMAPPED")
   seq_info@seqlengths <- c(seq_info@seqlengths, 99999L)
   seq_info@is_circular <- c(seq_info@is_circular, FALSE)
