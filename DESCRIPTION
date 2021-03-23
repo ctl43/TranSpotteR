@@ -1,17 +1,18 @@
 Package: TranSpotteR
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Pipeline for identifying LINE1 insertoin in the WGS data
 Version: 0.1.0
 Authors@R: c(person("Cheuk-Ting", "Law", role = "cre", email = "infinite.monkeys.with.keyboards@gmail.com"))
-Description: More about what it does (maybe more than one line)
-    Use four spaces when indenting paragraphs within the Description.
+Description: Implementing methods to extract reads for inferring LINE1 integration in the genome.
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
 Depends: 
 	Biostrings,
 	GenomicRanges,
-	data.table
+	data.table,
+	BiocParallel,
+	IRanges
 Imports:
 	vroom,
 	igraph,
@@ -19,7 +20,6 @@ Imports:
 	BiocGenerics,
 	XVector,
 	IRanges, 
-	BiocParallel,
 	uuid,
 	csaw, 
 	Rsamtools,
