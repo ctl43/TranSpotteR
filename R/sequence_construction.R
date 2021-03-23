@@ -51,6 +51,7 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10)){
 
   ## Tidying up the number reads
   merged_contigs <- rep(CharacterList(character(0L)), length(partner_contigs))
+  elementMetadata(merged_contigs)$n_reads <- rep(IntegerList(integer()),length(merged_contigs))
   partner_n_reads <- IntegerList(lapply(partner_contigs, "[[", i = 2))
   cluster_n_reads <- IntegerList(lapply(cluster_contigs, "[[", i = 2))
   partner_contigs <- CharacterList(lapply(partner_contigs, "[[", i = 1))
