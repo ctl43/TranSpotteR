@@ -157,6 +157,10 @@ anno_polyA <- function(x){
   combined_nreads[lengths(long_nreads) > 0] <- long_nreads[lengths(long_nreads) > 0]
   combined_info[lengths(long_nreads) > 0] <- long_info[lengths(long_nreads) > 0]
 
+  if(length(combined_info)==0){
+    return(NULL)
+  }
+
   names(combined_info) <- names(clusters)
   combined_info_grp <- rep(names(combined_info), lengths(combined_info))
   flat_combined_info <- unlist(combined_info, recursive = FALSE, use.names = FALSE)
