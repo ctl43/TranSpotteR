@@ -4,12 +4,10 @@
 #' @importFrom GenomicAlignments cigarToRleList explodeCigarOpLengths
 #' @importFrom Biostrings DNAStringSet reverseComplement DNAStringSetList
 
-get_unmapped_clipped_read <- function(x, include_middle_unmapped=TRUE){
+get_unmapped_clipped_read <- function(x, include_middle_unmapped = TRUE){
   # This function extracts the unmapped, clipped sequence
   # and the umapped sequence that is in the middle of a read.
-
   x$QNAME <- as.character(x$QNAME)
-
   # Initialisation
   unmapped_result <- r_result <- l_result <- rep("", sum(!duplicated(x$QNAME)))
   m_result <- rep(CharacterList(character()), sum(!duplicated(x$QNAME)))
