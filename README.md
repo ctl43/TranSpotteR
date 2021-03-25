@@ -11,21 +11,18 @@ To further reduce the number of reads for the downstream step, only read pairs t
 Combining these steps, the reads for finding reference and non-reference LINE1 insertion can be included.
 
 ### 2. Clustering reads (cluster_reads)
-The uniquely mapped (MAPQ >= 10) reads are clustered to serve as an anchor region.
-The cluster should have coverage of at least n reads (default:3 reads) at a point.
+Reads with MAPQ >= 10 are considered as uniquely mapped and clustered together.
 
-### 3. Locally assembling reads clusters (construct_contigs)
+### 3. Assembling reads clusters (construct_contigs)
 For the assembly step, an sequence assembly function was written (in R and C++ via Rcpp) due to the lack of a related function in R.
 The sequence assembly employed the Overlaps-Layout-Consensus(OLC) method.
-The clustered reads and their partner reads are assembled respectively, then the function will attempt to combine the contigs generated from the clustered reads and the contig from the partner reads to form a long contig.
+The clustered reads and their partner reads are assembled respectively, then the function will attempt to combine the cluster contig and the partner contig to form a long contig.
 
 ### 4. Annotating the constructed reads (annotate_contigs)
-The contigs are then annotated by aligning to the sequence of interest and the genomic.
-Contigs are aligned to sequences of interest (e.g a consensus sequence of Hot LINE1) and the unaligned parts of the read will be collected and proceeded to the next alignment to the genome.
-The first alignment is served as a 'bait' to collect the sequence of interest, and the second aligment is to locate the seqeunce in the genome.
-In principle, the read annotation function can be extended to other applications rather than just identification of transposon insertion but also insertion of other sequences of intereset,for example, virus genome, integrated plasmid and other ERV.
-Apart from annotating the sequence of interest, if a contig maps to two different genomic regions, the function is also able to annotate them.
-Therefore, it can be extended to chromosomal translocation and this will be done in the future.
+By aligning to the sequence of interest and the genomic, reads are annotated to the corresponding mapped regions.
+Firetly, Contigs are aligned to sequences of interest (e.g a consensus sequence of Hot LINE1) and the unaligned parts of the read will be subjected to the next alignment aginst the genome.
+The first alignment is served as a 'bait' to collect the sequence of interest, and the second aligment is to locate the insertion site in the genome.
+Besides, the polyA sequence will also be identified and annotated in this step..
 
 ### 5. Inferring the LINE1 integration (infer_tranposon)
 Under development and will be out soon.
@@ -41,5 +38,4 @@ result <- infer_tranposon(annotation) # under development
 ```
 
 ## In the future
-The functions of this package will be extended to detect chromosomal translocation and virus insertion soon.
-
+The applications of this package will be extended to detect chromosomal translocation and virus insertion soon.
