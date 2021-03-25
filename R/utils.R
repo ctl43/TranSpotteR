@@ -410,8 +410,9 @@ merge_glist <- function(x, tol = 10000){
   ol_grp <- rep(seq_along(is_ol), lengths(is_ol))
   is_ol <- LogicalList(split(c(rep(FALSE, length(is_ol)), unlist(is_ol, use.names = FALSE)),
                              c(seq_along(is_ol), ol_grp))) # appending a TRUE at the first position
-  if(any(lengths(x) == 0 )){
-    is_ol[[which(lengths(x) == 0)]] <- logical(0L)
+  is_empty <- lengths(x) == 0
+  if(any(is_empty)){
+    is_ol[which(is_empty)] <- rep(LogicalList(logical(0L)), sum(is_empty))
   }
   merged_grp <- cumsum(!is_ol)
   ordered_flat <- unlist(split(flat, flat$grp))
@@ -419,6 +420,7 @@ merge_glist <- function(x, tol = 10000){
   final_grp <- unlist(unique(IntegerList(split(as.integer(ordered_flat$grp), merged_grp))), use.names = FALSE)
   final_grp <- factor(final_grp, levels = levels(grp))
   out <- split(unlist(range(split(ordered_flat, merged_grp)), use.names = FALSE), final_grp)
+  names(out) <- names(x)
   return(out)
 }
 
