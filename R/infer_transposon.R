@@ -1,14 +1,11 @@
 #' @export
-infer_transposon <- function(a, tol = 10000, max_transduced = 50000){
-  grl <- .preprocess_info(a)
+infer_transposon <- function(a, tol = 10000, max_transduced = 50000, chromosome = chromosome){
+  grl <- suppressWarnings(.preprocess_info(a, chromosome = chromosome))
 
-  ## Getting annotations with more than one annotation
-  has_multiple <- how_many_regions_in_range(grl, tol = tol) > 1
-  no_unwanted_rname <- all(match(split(seqnames(gr), gr$origin), c(1:22, "X", "Y", "Hot_L1_polyA", "polyA"), nomatch = 0) > 0)
+  ## Filtering out annotation with polyA only
   insert_gr <- non_polyA_or_insert(grl)
   anno_is_polyA_only <- all(.check_polyA(insert_gr))
-  wanted <- has_multiple & no_unwanted_rname & !anno_is_polyA_only
-  grl <- grl[wanted]
+  grl <- grl[!anno_is_polyA_only]
 
   # Getting the best annotation if there is more than one annotation in a read cluster
   grl <- .get_the_best(grl, elementMetadata(grl)$cluster_region)
@@ -349,7 +346,7 @@ data_input <- function(storage, data, direction){
 }
 
 #' @export
-.preprocess_info <- function(a){
+.preprocess_info <- function(a, chromosome = c(1:22, "X", "Y", "Hot_L1_polyA", "polyA")){
   x <- a[[1]]
   n_anno <- sapply(x, nrow)
   origins <- factor(rep(seq_along(x), n_anno), levels = seq_along(x))
@@ -365,8 +362,11 @@ data_input <- function(storage, data, direction){
                      cigar = y$cigar, seq = y$seq)
   gr <- convert_character2gr(y$annotation, extra_info = extra_info)
   grl <- split(gr, gr$origin)
-  a$contig_detail <- split(y, y$origin)
   elementMetadata(grl) <- a
+
+  has_multiple <- how_many_regions_in_range(grl, tol = tol) > 1
+  no_unwanted_rname <- all(match(split(seqnames(gr), gr$origin), chromosome, nomatch = 0) > 0)
+  grl <- grl[has_multiple & no_unwanted_rname]
 
   # Getting annotations that fit the cluster orientation
   sensible_things <- first_things <- unlist(first_element(grl))
@@ -378,5 +378,6 @@ data_input <- function(storage, data, direction){
   ol <- findOverlaps(sensible_things, gr4ol)
   ol_idx <- ol@from[ol@from == ol@to]
   grl <- grl[ol_idx]
+  grl
 }
 
