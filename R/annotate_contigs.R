@@ -14,9 +14,11 @@ annotate_contigs <- function(x,
 {
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
-  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, insert = insert, genome = genome,
-                  customised_annotation = customised_annotation)
-  out <- rbind(out[[1]], out[[2]])
+  p_out <- .internal_annotation(p, BPPARAM = BPPARAM, insert = insert, genome = genome,
+                                customised_annotation = customised_annotation)
+  m_out <- .internal_annotation(m, BPPARAM = BPPARAM, insert = insert, genome = genome,
+                                customised_annotation = customised_annotation)
+  out <- rbind(p_out, m_out)
   names(out) <- c("contig_detail", "nreads", "cluster_origin")
   out$cluster_region <- as.character(x[out$cluster_origin])
   return(out)
