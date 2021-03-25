@@ -1,22 +1,6 @@
 #' @export
-insertion_inference <- function(a, tol = 10000, max_transduced = 50000){
-  x <- a[[1]]
-  n_anno <- sapply(x, nrow)
-  origins <- factor(rep(seq_along(x), n_anno), levels = seq_along(x))
-  cluster_gr <- convert_character2gr(a$cluster_region)
-  origin_direction <- rep(strand(cluster_gr), n_anno)
-  x <- rbindlist(x)
-  x$origin <- origins
-  x$origin_direction <- as.factor(origin_direction)
-  selected <- grep(":", x$annotation)
-  y <- x[selected]
-  extra_info <- list(QNAME = y$QNAME, origin = y$origin,
-                     origin_direction = y$origin_direction,
-                     cigar = y$cigar, seq = y$seq)
-  gr <- convert_character2gr(y$annotation, extra_info = extra_info)
-  grl <- split(gr, gr$origin)
-  a$contig_detail <- split(y, y$origin)
-  elementMetadata(grl) <- a
+infer_transposon <- function(a, tol = 10000, max_transduced = 50000){
+  grl <- .preprocess_info(a)
 
   ## Getting annotations with more than one annotation
   has_multiple <- how_many_regions_in_range(grl, tol = tol) > 1
@@ -24,18 +8,7 @@ insertion_inference <- function(a, tol = 10000, max_transduced = 50000){
   insert_gr <- non_polyA_or_insert(grl)
   anno_is_polyA_only <- all(.check_polyA(insert_gr))
   wanted <- has_multiple & no_unwanted_rname & !anno_is_polyA_only
-
-  # Getting annotations that fit the cluster orientation
   grl <- grl[wanted]
-  sensible_things <- first_things <- unlist(first_element(grl))
-  last_things <- unlist(last_element(grl))
-  is_m <- last_things$origin_direction == "-"
-  sensible_things[is_m] <- last_things[is_m]
-  gr4ol <- convert_character2gr(elementMetadata(grl)$cluster_region)
-  strand(gr4ol) <- "+"
-  ol <- findOverlaps(sensible_things, gr4ol)
-  ol_idx <- ol@from[ol@from == ol@to]
-  grl <- grl[ol_idx]
 
   # Getting the best annotation if there is more than one annotation in a read cluster
   grl <- .get_the_best(grl, elementMetadata(grl)$cluster_region)
@@ -59,6 +32,7 @@ insertion_inference <- function(a, tol = 10000, max_transduced = 50000){
   fully_covered <- fully_covered[has_multiple_1]
   fully_covered_ranges <- convert_character2gr(elementMetadata(fully_covered)$cluster_region)
   fully_covered_ranges$origin <- seq_along(fully_covered)
+
   # Preventing overlapping between positive and negative cluster
   fully_covered_ranges <- split(fully_covered_ranges, strand(fully_covered_ranges))
   fully_covered_ranges$`-` <- subsetByOverlaps(fully_covered_ranges$`-`, fully_covered_ranges$`+` + tol, ignore.strand = TRUE, invert = TRUE)
@@ -374,5 +348,35 @@ data_input <- function(storage, data, direction){
   return(storage)
 }
 
+#' @export
+.preprocess_info <- function(a){
+  x <- a[[1]]
+  n_anno <- sapply(x, nrow)
+  origins <- factor(rep(seq_along(x), n_anno), levels = seq_along(x))
+  cluster_gr <- convert_character2gr(a$cluster_region)
+  origin_direction <- rep(strand(cluster_gr), n_anno)
+  x <- rbindlist(x)
+  x$origin <- origins
+  x$origin_direction <- as.factor(origin_direction)
+  selected <- grep(":", x$annotation)
+  y <- x[selected]
+  extra_info <- list(QNAME = y$QNAME, origin = y$origin,
+                     origin_direction = y$origin_direction,
+                     cigar = y$cigar, seq = y$seq)
+  gr <- convert_character2gr(y$annotation, extra_info = extra_info)
+  grl <- split(gr, gr$origin)
+  a$contig_detail <- split(y, y$origin)
+  elementMetadata(grl) <- a
 
+  # Getting annotations that fit the cluster orientation
+  sensible_things <- first_things <- unlist(first_element(grl))
+  last_things <- unlist(last_element(grl))
+  is_m <- last_things$origin_direction == "-"
+  sensible_things[is_m] <- last_things[is_m]
+  gr4ol <- convert_character2gr(elementMetadata(grl)$cluster_region)
+  strand(gr4ol) <- "+"
+  ol <- findOverlaps(sensible_things, gr4ol)
+  ol_idx <- ol@from[ol@from == ol@to]
+  grl <- grl[ol_idx]
+}
 
