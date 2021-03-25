@@ -1,12 +1,13 @@
 #' @export
 #' @importFrom Rsamtools bamFlagAsBitMatrix
 extract_reads <- function(bam, tmp_dir = NULL,
-                          out_dir, chromosome = c(1:22, "X", "Y", "KJ173426"),
+                          out_dir = getwd(), chromosome = c(1:22, "X", "Y", "KJ173426"),
                           samtools = "samtools",
                           interested_region = NULL,
                           interested_seq = NULL,
                           keep_intermediate = FALSE,
-                          threads = 5){
+                          threads = 5,
+                          high_mapq = 5){
 # A wrapper to extract discordant reads by calling samtools and filtering those obvious non-informatic read pairs
   if (is.null(tmp_dir)) {
     tmp_dir <- tempdir()
@@ -73,7 +74,7 @@ extract_reads <- function(bam, tmp_dir = NULL,
   combined <- combined[-combined[failed_insert_check, which = TRUE]]
 
   # At least has one read with high mapq
-  mapq_check <- data.table(QNAME = combined$QNAME, HIGH_MAPQ = (combined$RNAME %in% chromosome & combined$MAPQ > 5))
+  mapq_check <- data.table(QNAME = combined$QNAME, HIGH_MAPQ = (combined$RNAME %in% chromosome & combined$MAPQ > high_mapq))
   mapq_check <- mapq_check[, list(HIGH_MAPQ = sum(HIGH_MAPQ)), by = QNAME]
   has_high_mapq <- mapq_check$QNAME[!mapq_check$HIGH_MAPQ == 0]
   combined <- combined[J(has_high_mapq), ]
