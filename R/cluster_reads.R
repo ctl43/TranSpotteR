@@ -3,20 +3,22 @@
 #' @importFrom S4Vectors 'elementMetadata<-'
 #' @importFrom BiocGenerics strand start end 'strand<-'
 
-clustering_reads <- function(total, min_peak = 5, size_tol = 0, max_reads = 100){
-  # min_peak, the minimum coverage that the cluster should have
-  # If min_peak = 3
+cluster_reads <- function(total, anchor_min_mapq, min_cov = 3, max_reads = 100){
+  # min_cov, the minimum coverage that the cluster should have
+  # If min_cov = 3
   #1112221112211111 (peak <= 3)     1122333222111 (peak >= 3)
   #   --------                        -----------
   #------             <- filtered   -------        <- included
   #         -------                     ------
   #
+  is_supp <- !!bitwAnd(total$FLAG, 0x800)
+  total$is_anchor <- total$MAPQ >= anchor_min_mapq & !is_supp
   gr <- total[total$is_anchor]
   p <- gr[strand(gr) == "+"]
   m <- gr[strand(gr) == "-"]
-  p_cluster <- .filter_read_by_coverage(p, min_peak = min_peak)
+  p_cluster <- .filter_read_by_coverage(p, min_cov = min_cov)
   names(p_cluster) <- seq_along(p_cluster)
-  m_cluster <- .filter_read_by_coverage(m, min_peak = min_peak)
+  m_cluster <- .filter_read_by_coverage(m, min_cov = min_cov)
   names(m_cluster) <- seq_along(m_cluster)
   strand(p_cluster) <- "+"
   strand(m_cluster) <- "-"
@@ -76,7 +78,7 @@ clustering_reads <- function(total, min_peak = 5, size_tol = 0, max_reads = 100)
 #' @importFrom GenomeInfoDb seqinfo
 
 .filter_read_by_coverage <- function(x, min_read = 2,
-                                    min_peak = 5,
+                                     min_cov = 5,
                                     window_tol = 500,
                                     rescue_tol = 500,
                                     rescue = FALSE){
@@ -88,9 +90,9 @@ clustering_reads <- function(total, min_peak = 5, size_tol = 0, max_reads = 100)
                        IRanges(unlist(start(sliced)), unlist(end(sliced))),
                        seqinfo = seqinfo(x))
   collapsed$max_count <- unlist(max_count)
-  peaks <- collapsed[collapsed$max_count >= min_peak]
+  peaks <- collapsed[collapsed$max_count >= min_cov]
   if(rescue){
-    temp <- collapsed[!collapsed$max_count >= min_peak] # Recusing reads that are around the main clusters
+    temp <- collapsed[!collapsed$max_count >= min_cov] # Recusing reads that are around the main clusters
     rescued <- subsetByOverlaps(temp, peaks + rescue_tol)
     collapsed <- c(peaks, rescued)
   }else{
