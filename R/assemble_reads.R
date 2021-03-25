@@ -2,9 +2,7 @@
 #' @importFrom data.table data.table setDT setkeyv
 #' @importFrom Biostrings consensusMatrix DNAStringSet
 #' @importFrom uuid UUIDgenerate
-
-#' @export
-greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, min_len = 8L,
+assemble_reads <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, min_len = 8L,
                        min_pid = 85, consensus_min_len = 100)
   # It assembles reads (getting the shortest common superstring problem, scs) by overlap-layout-consensus method.
   # The overlapping part, it simply chooses the pair with longest overlapping length, so called a greedy way.
@@ -100,9 +98,9 @@ greedy_scs <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, m
   # }
 
   if(msa_result){
-    return(list(consensus = consensus, msa = msa_view_aln))
+    return(list(consensus = consensus, n_reads = n_reads, msa = msa_view_aln))
   }else{
-    return(list(consensus, n_reads))
+    return(list(consensus = consensus, n_reads = n_reads))
   }
 }
 
@@ -113,8 +111,9 @@ which_is_fully_covered <- function(info){
   c(info$seq1[fully_covered_1], covered_2 = info$seq2[fully_covered_2])
 }
 
-# Function to determine a pair of sequences that which one is of the left hand side
+
 .reorder_seq_info <- function(info){
+  # Function to determine a pair of sequences that which one is of the left hand side
   # Determining whether seq1 is on the left side
   seq1_on_right <- info$seq1_right_clipped_len != 0L
   ordered_info <- info # Creating a copy

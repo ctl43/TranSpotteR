@@ -3,7 +3,7 @@
 #' @importFrom Biostrings DNAStringSet DNAStringSetList reverseComplement
 #' @importFrom BiocParallel bplapply MulticoreParam
 
-sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10)){
+construct_contigs <- function(x, BPPARAM = MulticoreParam(workers = 10)){
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
   p <- .internal_construction(p, BPPARAM = BPPARAM)
@@ -39,14 +39,14 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10)){
   # Assembling partner seq
   partner_grp <- as.integer(cut(seq_along(partner_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
   partner_seq <- split(partner_seq, partner_grp)
-  partner_contigs <- bplapply(partner_seq, function(x)lapply(x, greedy_scs), BPPARAM = BPPARAM)
+  partner_contigs <- bplapply(partner_seq, function(x)lapply(x, assemble_reads), BPPARAM = BPPARAM)
   partner_contigs <- unlist(partner_contigs, recursive = FALSE, use.names = FALSE)
 
   # Assembling cluster sequences
   cluster_seq <- split(unlist(x$members)$SEQUENCE, rep(seq_along(x), lengths(x$members)))
   cluster_grp <- as.integer(cut(seq_along(cluster_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
   cluster_seq <- split(cluster_seq, cluster_grp)
-  cluster_contigs <- bplapply(cluster_seq, function(x)lapply(x, greedy_scs), BPPARAM = BPPARAM)
+  cluster_contigs <- bplapply(cluster_seq, function(x)lapply(x, assemble_reads), BPPARAM = BPPARAM)
   cluster_contigs <- unlist(cluster_contigs, recursive = FALSE, use.names = FALSE)
 
   ## Tidying up the number reads
@@ -78,7 +78,7 @@ sequence_construction <- function(x, BPPARAM = MulticoreParam(workers = 10)){
                          SIMPLIFY = FALSE)
     merged_grp <- as.integer(cut(seq_along(merged_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
     merged_seq <- split(merged_seq, merged_grp)
-    tmp <- bplapply(merged_seq, function(x)lapply(x, function(x)greedy_scs(x[[1]], x[[2]])), BPPARAM = BPPARAM)
+    tmp <- bplapply(merged_seq, function(x)lapply(x, function(x)assemble_reads(x[[1]], x[[2]])), BPPARAM = BPPARAM)
     tmp <- unlist(tmp, recursive = FALSE, use.names = FALSE)
     tmp_merged_n_reads <- IntegerList(lapply(tmp, "[[", i = 2))
     merged_contigs[has_both] <- CharacterList(lapply(tmp, "[[", i = 1))
