@@ -1,7 +1,6 @@
 #' @export
-infer_simple_insertion <- function(a, targets, tol = 10000){
-  grl <- .preprocess_info(a)
-  grl <- grl[any(seqnames(grl) %in% targets)]
+infer_simple_insertion <- function(a, chromosome, tol = 10000){
+  grl <- .preprocess_info(a, chromosome = chromosome)
 
   # Finding annotation that fully cover the insertion and they will be handled separately
   first_gr <- unlist(first_element(grl))
