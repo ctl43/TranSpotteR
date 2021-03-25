@@ -4,17 +4,18 @@
 #' @importFrom BiocParallel bplapply MulticoreParam
 
 # A wrapper for read annotation
-annotate_constructed_reads <- function(x,
-                                       ref_1 = NULL,
-                                       ref_2 = NULL,
-                                       BPPARAM = MulticoreParam(workers = 3L))
+annotate_contigs <- function(x,
+                             insert = NULL,
+                             genome = NULL,
+                             customised_annotation = list(anno_polyA),
+                             BPPARAM = MulticoreParam(workers = 3L))
   # A wrapper function process both plus and minus stranded read clusters.
   # Written by Cheuk-Ting Law
 {
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
-  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, ref_1 = ref_1, ref_2 = ref_2,
-                  customised_annotation = list(anno_polyA))
+  out <- bplapply(list(p, m), .internal_annotation, BPPARAM = BPPARAM, insert = insert, genome = genome,
+                  customised_annotation = customised_annotation)
   out <- rbind(out[[1]], out[[2]])
   names(out) <- c("contig_detail", "nreads", "cluster_origin")
   out$cluster_region <- as.character(x[out$cluster_origin])
@@ -94,11 +95,11 @@ anno_polyA <- function(x){
 #' @importFrom IRanges CharacterList
 .internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3),
                                   customised_annotation = list(anno_polyA),
-                                  ref_1, ref_2)
+                                  insert, genome)
   # Annotating the clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
-  # 1. Aligning the sequence to the ref_1, LINE1 in this case
-  # 2. Aligning the remaining part to the ref2, genome in this case
+  # 1. Aligning the sequence to the insert, LINE1 in this case
+  # 2. Aligning the remaining part to the genome in this case
   # 3. Annotating the whole constructed reads
   # 4. Identifying the polyA/polyT or customised annotation
   # Written by Cheuk-Ting Law
@@ -116,9 +117,9 @@ anno_polyA <- function(x){
   flat_cluster_contigs <- unlist(clusters$cluster_contigs)
   flat_partner_contigs <- unlist(clusters$partner_contigs)
   flat_long_contigs <- unlist(clusters$long_contigs)
-  cluster_anno <- .annotate_reads(flat_cluster_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, ref_1 = ref_1, ref_2 = ref_2)
-  partner_anno <- .annotate_reads(flat_partner_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, ref_1 = ref_1, ref_2 = ref_2)
-  long_anno <- .annotate_reads(flat_long_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, ref_1 = ref_1, ref_2 = ref_2)
+  cluster_anno <- annotate_seq(flat_cluster_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, insert = insert, genome = genome)
+  partner_anno <- annotate_seq(flat_partner_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, insert = insert, genome = genome)
+  long_anno <- annotate_seq(flat_long_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, insert = insert, genome = genome)
   cluster_grp <- factor(rep(names(clusters), lengths(clusters$cluster_contigs)), levels = names(clusters))
   partner_grp <- factor(rep(names(clusters), lengths(clusters$partner_contigs)), levels = names(clusters))
   long_grp <- factor(rep(names(clusters), lengths(clusters$long_contigs)), levels = names(clusters))
@@ -175,8 +176,8 @@ anno_polyA <- function(x){
 #' @importFrom IRanges RleList CharacterList
 #' @importFrom BiocGenerics start end width 'start<-' 'end<-'
 
-.annotate_reads <- function(seq, ref_1, ref_2,
-                            BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
+annotate_seq <- function(seq, insert, genome,
+                         BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
   # This function annotates chimeric sequences that consist of any multi-mapped sequences/non-reference sequence and any genomic regions.
   # It first mapped the bait (repeated regions/non-reference sequence), then the genomic regions by bwa
   # Written by Cheuk-Ting Law
@@ -194,7 +195,7 @@ anno_polyA <- function(x){
   }
 
   # Mapping to LINE1 sequence
-  aln_1 <- bwa_alignment(seq, ref = ref_1, samtools_param = "")
+  aln_1 <- bwa_alignment(seq, ref = insert, samtools_param = "")
   aln_1 <- convertingHtoS(aln_1, unique_id = "QNAME")
 
   # Annotating the reads
@@ -209,13 +210,13 @@ anno_polyA <- function(x){
 
   # Can be sped up by combining all the reads together and only doing once.
   aln_2 <- bplapply(clipped_seq_1, bwa_alignment, call_bwa = "bwa mem ",
-                    samtools_param = "-F 128 -F 4", BPPARAM = BPPARAM, ref = ref_2)
+                    samtools_param = "-F 128 -F 4", BPPARAM = BPPARAM, ref = genome)
   aln_2 <- lapply(aln_2, convertingHtoS, unique_id = "QNAME")
   aln_2 <- lapply(aln_2, function(x)x[x$MAPQ > 10,])
   aln_2 <- lapply(aln_2, function(x){x$unified_cigar <- unify_cigar_strand(x$CIGAR, flag = x$FLAG, to = "+"); x})
 
   mapping_2 <- lapply(aln_2, sam2gr)
-  middle_aln_2 <- bwa_alignment(unlist(middle$seq), call_bwa = "bwa mem ", samtools_param = "-F 128 -F 4", ref = ref_2)
+  middle_aln_2 <- bwa_alignment(unlist(middle$seq), call_bwa = "bwa mem ", samtools_param = "-F 128 -F 4", ref = genome)
   middle_aln_2 <- convertingHtoS(middle_aln_2, unique_id = "QNAME")
   middle_aln_2$unified_cigar <- unify_cigar_strand(middle_aln_2$CIGAR, flag = middle_aln_2$FLAG, to = "+")
 
