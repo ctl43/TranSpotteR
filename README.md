@@ -29,7 +29,7 @@ clusters <- cluster_reads(reads)
 clusters <- construct_contigs(clusters)
 annotation <- annotate_contigs(clusters, insert = "LINE1.fa", genome="hg19.fa")
 result <- infer_tranposon(annotation) # under development
-```r
+```
 
 ## In the future/To-do list
 1. The applications of this package will be extended to detect chromosomal translocation and transduction of viral genome.
