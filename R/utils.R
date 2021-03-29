@@ -66,7 +66,7 @@ rle_to_cigar <- function(x){
 }
 
 #' @export
-#' @importFrom S4Vectors runValue runLength aggregate
+#' @importFrom S4Vectors runValue runLength aggregate revElements
 #' @importFrom GenomicAlignments cigarToRleList
 
 unify_cigar_strand <- function(cigar, flag = NULL, from, to, along_query = FALSE){
@@ -337,6 +337,9 @@ get_unmapped_clipped_read <- function(x, include_middle_unmapped = TRUE){
 
 #' @export
 first_element <- function(x, invert = FALSE){
+  if(length(x) == 0){
+    return(x)
+  }
   grp <- factor(rep(seq_along(x), lengths(x)), levels = seq_along(x))
   flat <- unlist(x, use.names = FALSE)
   is_dup <- duplicated(grp)
@@ -349,6 +352,9 @@ first_element <- function(x, invert = FALSE){
 
 #' @export
 last_element <- function(x, invert = FALSE){
+  if(length(x) == 0){
+    return(x)
+  }
   grp <- factor(rep(seq_along(x), lengths(x)), levels = seq_along(x))
   flat <- unlist(x, use.names = FALSE)
   rev_grp <- rev(grp)
