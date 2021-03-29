@@ -1,6 +1,6 @@
 #' @export
 infer_transposon <- function(a, tol = 10000, max_transduced = 50000, chromosome = chromosome){
-  grl <- suppressWarnings(.preprocess_info(a, chromosome = chromosome))
+  grl <- suppressWarnings(.preprocess_info(a, chromosome = chromosome, tol = tol))
 
   ## Filtering out annotation with polyA only
   insert_gr <- non_polyA_or_insert(grl)
@@ -27,20 +27,12 @@ infer_transposon <- function(a, tol = 10000, max_transduced = 50000, chromosome 
   # Checking whether there is only polyA
   has_multiple_1 <- how_many_regions_in_range(fully_covered[!has_pa_1], tol = tol) != 1
   fully_covered <- fully_covered[has_multiple_1]
-  fully_covered_ranges <- convert_character2gr(elementMetadata(fully_covered)$cluster_region)
-  fully_covered_ranges$origin <- seq_along(fully_covered)
-
-  # Preventing overlapping between positive and negative cluster
-  fully_covered_ranges <- split(fully_covered_ranges, strand(fully_covered_ranges))
-  fully_covered_ranges$`-` <- subsetByOverlaps(fully_covered_ranges$`-`, fully_covered_ranges$`+` + tol, ignore.strand = TRUE, invert = TRUE)
-  fully_covered_ranges <- unlist(fully_covered_ranges)
-  fully_covered <- fully_covered[fully_covered_ranges$origin]
-
-  storage_1 <- .initialize_storage(length(fully_covered))
-  storage_1 <- data_input(storage_1, fully_covered, direction = "left")
-  storage_1 <- data_input(storage_1, fully_covered, direction = "right")
-  storage_1 <- .get_TSD(unlist(first_element(fully_covered)), unlist(last_element(fully_covered)), storage_1)
-
+  if(length(fully_covered) != 0){
+    storage_1 <- .initialize_storage(length(fully_covered))
+    storage_1 <- data_input(storage_1, fully_covered, direction = "left")
+    storage_1 <- data_input(storage_1, fully_covered, direction = "right")
+    storage_1 <- .get_TSD(unlist(first_element(fully_covered)), unlist(last_element(fully_covered)), storage_1)
+  }
   # Need to handle transduction!
   head_tail_trimmed <- (last_element(first_element(fully_covered, invert = TRUE), invert = TRUE))
   head_is_pa <- unlist(first_element(.check_polyA(head_tail_trimmed)), use.names = FALSE)
@@ -75,30 +67,31 @@ infer_transposon <- function(a, tol = 10000, max_transduced = 50000, chromosome 
   has_pa_2 <- (has_pa_p | has_pa_m & !(has_pa_p & has_pa_m)) #does not allow to have polyA at both ends
   is_selected <- has_insert_p | has_insert_m & has_pa_2
   selected_pairs <- paired[is_selected]
-  selected_p <- paired_p[is_selected]
-  selected_m <- paired_m[is_selected]
-  end_on_the_right <- any(.check_polyA(selected_m))
+  if(length(selected_pairs) != 0 ){
+    selected_p <- paired_p[is_selected]
+    selected_m <- paired_m[is_selected]
+    end_on_the_right <- any(.check_polyA(selected_m))
+    storage_2 <- .initialize_storage(length(selected_p))
+    storage_2 <- data_input(storage_2, selected_p, direction = "left")
+    storage_2 <- data_input(storage_2, selected_m, direction = "right")
+    storage_2$n_reads_5p <- elementMetadata(selected_p)$nreads
+    storage_2$n_reads_3p <- elementMetadata(selected_m)$nreads
+    # Handling transduction on the right
+    right_transduced <- non_polyA_or_insert(last_element(selected_m[end_on_the_right], invert = TRUE))
+    right_transduced <- right_transduced[width(range(right_transduced)) < max_transduced]
+    right_transduced <- grl_to_character(right_transduced)
+    right_transduced[right_transduced == ""] <- NA
+    storage_2$transduced_genomic_region_3p[end_on_the_right] <-  right_transduced
 
-  storage_2 <- .initialize_storage(length(selected_p))
-  storage_2 <- data_input(storage_2, selected_p, direction = "left")
-  storage_2 <- data_input(storage_2, selected_m, direction = "right")
-  storage_2$n_reads_5p <- elementMetadata(selected_p)$nreads
-  storage_2$n_reads_3p <- elementMetadata(selected_m)$nreads
+    # Handling transduction on the left
+    left_transduced <- non_polyA_or_insert(first_element(selected_p[!end_on_the_right], invert = TRUE))
+    left_transduced <- left_transduced[width(range(left_transduced)) < max_transduced]
+    left_transduced <- grl_to_character(left_transduced)
+    left_transduced[left_transduced == ""] <- NA
+    storage_2$transduced_genomic_region_5p[!end_on_the_right] <-  left_transduced
+    storage_2 <- .get_TSD(selected_pairs@first, selected_pairs@second, storage_2)
+  }
 
-  # Handling transduction on the right
-  right_transduced <- non_polyA_or_insert(last_element(selected_m[end_on_the_right], invert = TRUE))
-  right_transduced <- right_transduced[width(range(right_transduced)) < max_transduced]
-  right_transduced <- grl_to_character(right_transduced)
-  right_transduced[right_transduced == ""] <- NA
-  storage_2$transduced_genomic_region_3p[end_on_the_right] <-  right_transduced
-
-  # Handling transduction on the left
-  left_transduced <- non_polyA_or_insert(first_element(selected_p[!end_on_the_right], invert = TRUE))
-  left_transduced <- left_transduced[width(range(left_transduced)) < max_transduced]
-  left_transduced <- grl_to_character(left_transduced)
-  left_transduced[left_transduced == ""] <- NA
-  storage_2$transduced_genomic_region_5p[!end_on_the_right] <-  left_transduced
-  storage_2 <- .get_TSD(selected_pairs@first, selected_pairs@second, storage_2)
 
   # Processing those without end
   used_origins <- c(used_origins, as.character(c(selected_pairs@first$origin, selected_pairs@second$origin)))
@@ -113,34 +106,39 @@ infer_transposon <- function(a, tol = 10000, max_transduced = 50000, chromosome 
   ## For the unpaired positive clusters
   unpaired_is_p <- unlist(first_element(unpaired))$origin_direction == "+"
   unpaired_p <- unpaired[unpaired_is_p]
-  storage_3 <- .initialize_storage(sum(unpaired_is_p))
-  storage_3 <- data_input(storage_3, unpaired_p, direction = "left")
+  if(length(unpaired_p) != 0){
+    storage_3 <- .initialize_storage(sum(unpaired_is_p))
+    storage_3 <- data_input(storage_3, unpaired_p, direction = "left")
+    ### Transduction information on the 5' side
+    unpaired_p_has_pa <- any(.check_polyA(unpaired_p))
+    unpaired_p_has_multiple <- how_many_regions_in_range(non_polyA_or_insert(unpaired_p), tol = tol) > 1
+    is_unpaired_p_transduced <- unpaired_p_has_pa & unpaired_p_has_multiple
+    unpaired_p_transduced <- first_element(non_polyA_or_insert(unpaired_p[is_unpaired_p_transduced]), invert = TRUE)
+    unpaired_p_transduced <- unpaired_p_transduced[width(range(unpaired_p_transduced)) < max_transduced]
+    unpaired_p_transduced_grp <- rep(seq_along(unpaired_p_transduced), lengths(unpaired_p_transduced)) # in case there are more than 1 transduced regions
+    unpaired_p_transduced <- CharacterList(split(as.character(unlist(unpaired_p_transduced, use.names = FALSE)), unpaired_p_transduced_grp))
+    unpaired_p_transduced <- paste(unpaired_p_transduced, collapse = ",")
+    storage_3$transduced_genomic_region_5p[is_unpaired_p_transduced] <- unpaired_p_transduced
+  }
 
-  ### Transduction information on the 5' side
-  unpaired_p_has_pa <- any(.check_polyA(unpaired_p))
-  unpaired_p_has_multiple <- how_many_regions_in_range(non_polyA_or_insert(unpaired_p), tol = tol) > 1
-  is_unpaired_p_transduced <- unpaired_p_has_pa & unpaired_p_has_multiple
-  unpaired_p_transduced <- first_element(non_polyA_or_insert(unpaired_p[is_unpaired_p_transduced]), invert = TRUE)
-  unpaired_p_transduced <- unpaired_p_transduced[width(range(unpaired_p_transduced)) < max_transduced]
-  unpaired_p_transduced_grp <- rep(seq_along(unpaired_p_transduced), lengths(unpaired_p_transduced)) # in case there are more than 1 transduced regions
-  unpaired_p_transduced <- CharacterList(split(as.character(unlist(unpaired_p_transduced, use.names = FALSE)), unpaired_p_transduced_grp))
-  unpaired_p_transduced <- paste(unpaired_p_transduced, collapse = ",")
-  storage_3$transduced_genomic_region_5p[is_unpaired_p_transduced] <- unpaired_p_transduced
+
 
   ## For the unpaired negative clusters
   unpaired_m <- unpaired[!unpaired_is_p]
-  storage_4 <- .initialize_storage(sum(!unpaired_is_p))
-  storage_4 <- data_input(storage_4, unpaired[!unpaired_is_p], direction = "right")
+  if(length(unpaired_m) != 0){
+    storage_4 <- .initialize_storage(sum(!unpaired_is_p))
+    storage_4 <- data_input(storage_4, unpaired[!unpaired_is_p], direction = "right")
 
-  ### Transduction information on the 3' side
-  unpaired_m_has_pa <- any(.check_polyA(unpaired_m))
-  unpaired_m_has_multiple <- how_many_regions_in_range(non_polyA_or_insert(unpaired_m), tol = tol) > 1
-  is_unpaired_m_transduced <- unpaired_m_has_pa & unpaired_m_has_multiple
-  unpaired_m_transduced <- range(last_element(non_polyA_or_insert(unpaired_m[is_unpaired_m_transduced]), invert = TRUE))
-  unpaired_m_transduced_grp <- rep(seq_along(unpaired_m_transduced), lengths(unpaired_m_transduced))
-  unpaired_m_transduced <- CharacterList(split(as.character(unlist(unpaired_m_transduced, use.names = FALSE)), unpaired_m_transduced_grp))
-  unpaired_m_transduced <- paste(unpaired_m_transduced, collapse = ",")
-  storage_4$transduced_genomic_region_3p[is_unpaired_m_transduced] <- unpaired_m_transduced
+    ### Transduction information on the 3' side
+    unpaired_m_has_pa <- any(.check_polyA(unpaired_m))
+    unpaired_m_has_multiple <- how_many_regions_in_range(non_polyA_or_insert(unpaired_m), tol = tol) > 1
+    is_unpaired_m_transduced <- unpaired_m_has_pa & unpaired_m_has_multiple
+    unpaired_m_transduced <- range(last_element(non_polyA_or_insert(unpaired_m[is_unpaired_m_transduced]), invert = TRUE))
+    unpaired_m_transduced_grp <- rep(seq_along(unpaired_m_transduced), lengths(unpaired_m_transduced))
+    unpaired_m_transduced <- CharacterList(split(as.character(unlist(unpaired_m_transduced, use.names = FALSE)), unpaired_m_transduced_grp))
+    unpaired_m_transduced <- paste(unpaired_m_transduced, collapse = ",")
+    storage_4$transduced_genomic_region_3p[is_unpaired_m_transduced] <- unpaired_m_transduced
+  }
 
   # Collecting all the origins used to predict the insertions
   collected_origins <- split(unlist(first_element(fully_covered))$origin, seq_along(fully_covered))
@@ -213,7 +211,7 @@ pairing_annotation <- function(p_clusters, m_clusters, tol = 10000){
   preceded[is.na(preceded)] <- 0
   preceded <- splitted_gr[[2]][preceded]
   paired <- Pairs(anchor, preceded)
-  genomic_dist <- distance(paired@first, paired@second,)
+  genomic_dist <- distance(paired@first, paired@second)
   ordinal_dist <- preceded$order - anchor$order
   paired[genomic_dist < tol & ordinal_dist == 1]
 }
@@ -346,7 +344,7 @@ data_input <- function(storage, data, direction){
 }
 
 #' @export
-.preprocess_info <- function(a, chromosome = c(1:22, "X", "Y", "Hot_L1_polyA", "polyA")){
+.preprocess_info <- function(a, chromosome = c(1:22, "X", "Y", "Hot_L1_polyA", "polyA"), tol){
   x <- a[[1]]
   n_anno <- sapply(x, nrow)
   origins <- factor(rep(seq_along(x), n_anno), levels = seq_along(x))
