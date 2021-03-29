@@ -36,8 +36,8 @@ anno_polyA <- function(x){
   is_pa <- (a_prop > 0.85) & (nchar(x) > 5)
   t_prop <- j[, 2] / tot
   is_pt <- (t_prop > 0.85) & (nchar(x) > 5)
-  is_pt <- !grepl(":", x) & is_pt
-  is_pa <- !grepl(":", x) & is_pa
+  is_pt <- !grepl(":|N", x) & is_pt # Ignoring sequence with N
+  is_pa <- !grepl(":|N", x) & is_pa # Ignoring sequence with N
   x[is_pa] <- paste0("polyA", ":", 1, "-", nchar(x[is_pa]), ":", strand = "+")
   x[is_pt] <- paste0("polyA", ":", 1, "-", nchar(x[is_pt]), ":", strand = "-")
   x
@@ -204,7 +204,7 @@ annotate_seq <- function(seq, insert, genome,
   aln_1$unified_cigar <- unify_cigar_strand(aln_1$CIGAR, flag = aln_1$FLAG, to = "+")
 
   # Getting clipped sequences
-  clipped_seq_1 <- get_unmapped_clipped_read(aln_1, include_middle_unmapped = TRUE)
+  clipped_seq_1 <- get_unmapped_clipped_read(aln_1, include_middle_unmapped = TRUE) #Need to improve
 
   # Mapping to genome
   middle <- clipped_seq_1$middle
@@ -253,7 +253,7 @@ annotate_seq <- function(seq, insert, genome,
   mid_clipped_read_loc <- unlist(cigarRangesAlongQuerySpace(middle_aln_2$unified_cigar, ops = c("M", "I"), reduce.ranges = TRUE))
   mid_read_loc <- IRanges(start = mid_start + start(mid_clipped_read_loc) - 1,
                           end = mid_start + end(mid_clipped_read_loc) - 1 )
-  elementMetadata(mid_read_loc)$QNAME <- gsub("\\..*","",middle_aln_2$QNAME)
+  elementMetadata(mid_read_loc)$QNAME <- gsub("\\..*", "", middle_aln_2$QNAME)
   elementMetadata(mid_read_loc)$annotation <- as.character(sam2gr(middle_aln_2))
   elementMetadata(mid_read_loc)$cigar <- middle_aln_2$unified_cigar
 
