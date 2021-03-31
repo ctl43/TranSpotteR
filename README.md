@@ -18,7 +18,7 @@ Then, the unaligned parts of the read will be subjected to the next alignment ag
 The first alignment is served as a 'bait' to collect all the sequence of interest, and the second aligment is to locate the insertion site in the genome.
 In addition, some useful feature, for example, polyA sequence will also be identified and annotated in this step.
 
-### 5. Inferring the LINE1 integration (`infer_tranposon`)
+### 5. Inferring the LINE1 integration (`infer_transposon`)
 Under development and will be out soon.
 
 ## Example usage
@@ -28,7 +28,7 @@ reads <- import_files(extracted = "tesing_extracted.txt", anchor_min_mapq = 10)
 clusters <- cluster_reads(reads)
 clusters <- construct_contigs(clusters)
 annotation <- annotate_contigs(clusters, insert = "LINE1.fa", genome="hg19.fa")
-result <- infer_tranposon(annotation) # under development
+result <- infer_transposon(annotation) # under development
 ```
 
 ## In the future/To-do list
