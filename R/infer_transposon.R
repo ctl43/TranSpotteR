@@ -1,5 +1,5 @@
 #' @export
-infer_transposon <- function(a, tol = 10000, max_transduced = 50000, chromosome = chromosome){
+infer_transposon <- function(a, tol = 10000, max_transduced = 50000, chromosome){
   grl <- suppressWarnings(.preprocess_info(a, chromosome = chromosome, tol = tol))
 
   ## Filtering out annotation with polyA only
@@ -261,14 +261,12 @@ data_input <- function(storage, data, direction){
                   "genomic_start_5p" = NA,
                   "genomic_end_5p" = NA,
                   "genomic_orientation_5p" = NA,
-                  "genomic_break_5p" = NA,
                   "insert_qname_5p" = NA,
                   "insert_rname_5p" = NA,
                   "insert_start_5p" = NA,
                   "insert_end_5p" = NA,
                   "insert_orientation_5p" = NA,
                   "transduced_genomic_region_5p" = NA,
-                  "insert_break_5p" = NA,
                   "duplicated_seq_5p" = NA,
                   "is_exact_5p" = NA,
                   "n_reads_5p" = NA,
@@ -277,13 +275,11 @@ data_input <- function(storage, data, direction){
                   "genomic_start_3p" = NA,
                   "genomic_end_3p" = NA,
                   "genomic_orientation_3p" = NA,
-                  "genomic_break_3p" = NA,
                   "insert_qname_3p" = NA,
                   "insert_rname_3p" = NA,
                   "insert_start_3p" = NA,
                   "insert_end_3p" = NA,
                   "insert_orientation_3p" = NA,
-                  "insert_break_3p" = NA,
                   "transduced_genomic_region_3p" = NA,
                   "duplicated_seq_3p" = NA,
                   "is_exact_3p" = NA,
@@ -344,7 +340,8 @@ data_input <- function(storage, data, direction){
 }
 
 #' @export
-.preprocess_info <- function(a, chromosome = c(1:22, "X", "Y", "Hot_L1_polyA", "polyA"), tol){
+#' @importFrom BiocGenerics match
+.preprocess_info <- function(a, chromosome, tol){
   x <- a[[1]]
   n_anno <- sapply(x, nrow)
   origins <- factor(rep(seq_along(x), n_anno), levels = seq_along(x))
@@ -363,7 +360,7 @@ data_input <- function(storage, data, direction){
   elementMetadata(grl) <- a
 
   has_multiple <- how_many_regions_in_range(grl, tol = tol) > 1
-  no_unwanted_rname <- all(match(split(seqnames(gr), gr$origin), chromosome, nomatch = 0) > 0)
+  no_unwanted_rname <- all(BiocGenerics::match(split(seqnames(gr), gr$origin), chromosome, nomatch = 0) > 0)
   grl <- grl[has_multiple & no_unwanted_rname]
 
   # Getting annotations that fit the cluster orientation
