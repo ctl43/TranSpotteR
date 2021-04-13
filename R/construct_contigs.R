@@ -78,7 +78,7 @@ construct_contigs <- function(x, BPPARAM = MulticoreParam(workers = 10)){
                          SIMPLIFY = FALSE)
     merged_grp <- as.integer(cut(seq_along(merged_seq), breaks = BPPARAM$workers)) # increase the efficiency of using multicore
     merged_seq <- split(merged_seq, merged_grp)
-    tmp <- bplapply(merged_seq, function(x)lapply(x, function(x)assemble_reads(x[[1]], x[[2]])), BPPARAM = BPPARAM)
+    tmp <- bplapply(merged_seq, function(x)lapply(x, function(x)assemble_reads(x[[1]], x[[2]], return_hidden_supported = TRUE)), BPPARAM = BPPARAM)
     tmp <- unlist(tmp, recursive = FALSE, use.names = FALSE)
     tmp_merged_n_reads <- IntegerList(lapply(tmp, "[[", i = 2))
     merged_contigs[has_both] <- CharacterList(lapply(tmp, "[[", i = 1))
