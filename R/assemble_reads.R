@@ -3,7 +3,7 @@
 #' @importFrom Biostrings consensusMatrix DNAStringSet
 #' @importFrom uuid UUIDgenerate
 assemble_reads <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRUE, min_len = 8L,
-                       min_pid = 85, consensus_min_len = 100)
+                       min_pid = 85, consensus_min_len = 100, return_hidden_supported = FALSE)
   # It assembles reads (getting the shortest common superstring problem, scs) by overlap-layout-consensus method.
   # The overlapping part, it simply chooses the pair with longest overlapping length, so called a greedy way.
   # Written by Cheuk-Ting Law
@@ -35,8 +35,9 @@ assemble_reads <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRU
 
   # Filtering out reads that are fully covered by other reads
   fully_covered <- which_is_fully_covered(info)
-  info <- info[!(seq1 %in%  fully_covered | seq2 %in% fully_covered)]
-  vec <- vec[!names(vec) %in% fully_covered]
+  info <- info[!(seq1 %in% fully_covered[[1]] | seq2 %in% fully_covered[[1]])]
+  vec <- vec[!names(vec) %in% fully_covered[[1]]]
+  supported_by_fully_covered <- fully_covered[[2]]
 
   while(nrow(info) > 0){
     selected <- info[1L, ]
@@ -54,7 +55,8 @@ assemble_reads <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRU
     ol <- ol[ol$pid > min_pid & ol$aln_ol_len > min_len & (ol$seq1_ol_start == 1L | ol$seq2_ol_start == 1L), ]
     fully_covered <- which_is_fully_covered(ol)
     vec <- c(new_seq, vec)
-    info <- info[!(seq1 %in% c(left_idx, right_idx, fully_covered) | seq2 %in% c(left_idx, right_idx, fully_covered))]
+    info <- info[!(seq1 %in% c(left_idx, right_idx, fully_covered[[1]]) | seq2 %in% c(left_idx, right_idx, fully_covered[[1]]))]
+    supported_by_fully_covered <- c(supported_by_fully_covered, fully_covered[[2]])
     info <- rbindlist(list(ol, info))
     info <- info[order(info$aln_ol_len, decreasing = TRUE), ]
   }
@@ -80,27 +82,30 @@ assemble_reads <- function(vec, n_reads = NULL, msa_result = FALSE, add_id = TRU
 
 
   # Computing the number of reads consisting the consensus sequence
-  non_solo_n_reads <- unlist(lapply(member_idx, function(x)sum(n_reads[x])))
+  n_reads_out <- unlist(lapply(member_idx, function(x)sum(n_reads[x])))
 
   if(!is.null(consensus_min_len)){
-    non_solo_n_reads <- non_solo_n_reads[nchar(consensus) >= consensus_min_len]
+    n_reads_out <- n_reads_out[nchar(consensus) >= consensus_min_len]
     msa_view_aln <- msa_view_aln[nchar(consensus) >= consensus_min_len]
     consensus <- consensus[nchar(consensus) >= consensus_min_len]
   }
 
-  # if(return_no_assembly){
-  #   solo <- CharacterList(vec[solo_id])
-  #   n_reads <- c(non_solo_n_reads, n_reads[solo_id])
-  #   consensus <- c(consensus, solo)
-  #   msa_view_aln <- c(msa_view_aln, split(solo, solo_id))
-  # }else{
-    n_reads <- non_solo_n_reads
-  # }
+  if(return_hidden_supported){
+    rescued <- vec[names(vec) %in% supported_by_fully_covered]
+    rescued_n_reads <- n_reads[names(rescued)]
+    rescued_msa_view <- split(rescued, names(rescued))
+    if(add_id){
+      names(rescued_msa_view) <- names(rescued) <- UUIDgenerate(n = length(rescued))
+    }
+    msa_view_aln <- c(rescued_msa_view, msa_view_aln)
+    consensus <- c(rescued, consensus)
+    n_reads_out <- c(rescued_n_reads, n_reads_out)
+  }
 
   if(msa_result){
-    return(list(consensus = consensus, n_reads = n_reads, msa = msa_view_aln))
+    return(list(consensus = consensus, n_reads = n_reads_out, msa = msa_view_aln))
   }else{
-    return(list(consensus = consensus, n_reads = n_reads))
+    return(list(consensus = consensus, n_reads = n_reads_out))
   }
 }
 
@@ -108,7 +113,11 @@ which_is_fully_covered <- function(info){
   fully_covered_1 <- info$seq1_left_clipped_len == 0L & info$seq1_right_clipped_len ==0L
   fully_covered_2 <- info$seq2_left_clipped_len == 0L & info$seq2_right_clipped_len ==0L
   fully_covered_1[fully_covered_1 & fully_covered_2] <- FALSE
-  c(info$seq1[fully_covered_1], covered_2 = info$seq2[fully_covered_2])
+  init <- rep(NA, sum(fully_covered_1, fully_covered_2))
+  fully_covered <- data.frame(fully_covered = init, by = init)
+  fully_covered_1 <- data.table(fully_covered = info$seq1[fully_covered_1], by = info$seq2[fully_covered_1])
+  fully_covered_2 <- data.table(fully_covered = info$seq2[fully_covered_2], by = info$seq1[fully_covered_2])
+  rbind(fully_covered_1, fully_covered_2)
 }
 
 
