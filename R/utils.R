@@ -392,7 +392,7 @@ how_many_regions_in_range <- function(x, tol = 10000){
 }
 
 #' @export
-merge_glist <- function(x, tol = 10000){
+unstranded_merge_glist <- function(x, tol = 10000){
   n <- lengths(x)
   grp <- factor(rep(seq_along(x), n), levels = seq_along(x))
   flat <- unlist(x)
@@ -431,11 +431,30 @@ merge_glist <- function(x, tol = 10000){
 }
 
 #' @export
+merge_glist <- function(grl, tol = 10000, ignore.strand = TRUE){
+  if(ignore.strand){
+    return(unstranded_merge_glist(grl, tol = tol))
+  }else{
+    p_merged <- unstranded_merge_glist(grl[strand(grl)=="+"], tol = tol)
+    strand(p_merged) <- "+"
+    m_merged <- unstranded_merge_glist(grl[strand(grl)=="-"], tol = tol)
+    strand(m_merged) <- "-"
+    p_grp <- rep(names(p_merged), lengths(p_merged))
+    m_grp <- rep(names(m_merged), lengths(m_merged))
+    merged <- c(unlist(p_merged), unlist(m_merged))
+    grp <- factor(c(p_grp, m_grp), levels = names(grl))
+    return(split(merged, grp))
+  }
+}
+
+#' @export
 #' @importFrom BiocGenerics paste
+#' @importFrom stringr str_count
 grl_to_character <- function(x){
   grp <- factor(rep(seq_along(x), lengths(x)), levels = seq_along(x))
   x <- unlist(x)
   x <- as.character(x)
+  x[str_count(x, ":") == 1] <- paste0(x[str_count(x, ":") == 1], ":*")
   out <- paste(CharacterList(split(x, grp)), collapse = ",")
   out[out == ""] <- NA
   return(out)
