@@ -49,3 +49,4 @@ result <- infer_simple_insertion(annotation)
 ## In the future/To-do list
 1. The applications of this package will be extended to detect chromosomal translocation and transduction of viral genome.
 2. Long-read sequencing reads will be accepted later.
+3. Trace back the LINE1 origin from the genome based on sequence similarity (although it is likely that many of them are untraceable).
