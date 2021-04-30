@@ -21,14 +21,29 @@ In addition, some useful feature, for example, polyA sequence will also be ident
 ### 5. Inferring the LINE1 integration (`infer_transposon`)
 Under development and will be out soon.
 
-## Example usage
+### 6. Inferring viral/plasmid integration (`infer_simple_insertion`)
+
+## Example usage (LINE1 insertion)
+```r
+extract_reads(bam = "tesing.bam", out_dir = getwd())
+reads <- import_files(extracted = "tesing_extracted.txt", anchor_min_mapq = 10)
+clusters <- cluster_reads(reads)
+clusters <- construct_contigs(clusters) # The most time-consuming sttep;saving the result is recommended
+saveRDS(clusters, "test_contigs.rds")
+annotation <- annotate_contigs(clusters, insert = "LINE1.fa", genome="hg19.fa")
+result <- infer_transposon(annotation) # under development (for LINE1)
+```
+
+## Example usage (viral insertion)
 ```r
 extract_reads(bam = "tesing.bam", out_dir = getwd())
 reads <- import_files(extracted = "tesing_extracted.txt", anchor_min_mapq = 10)
 clusters <- cluster_reads(reads)
 clusters <- construct_contigs(clusters)
-annotation <- annotate_contigs(clusters, insert = "LINE1.fa", genome="hg19.fa")
-result <- infer_transposon(annotation) # under development
+# Or simply import the result generated for LINE1 insertion
+# clusters <- readRDS("test_contigs.rds")
+annotation <- annotate_contigs(clusters, insert = "HBV.fa", genome="hg19.fa")
+result <- infer_simple_insertion(annotation)
 ```
 
 ## In the future/To-do list
