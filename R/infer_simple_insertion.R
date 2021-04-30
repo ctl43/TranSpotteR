@@ -64,7 +64,16 @@ infer_simple_insertion <- function(a, chromosome, target, tol = 10000){
   collected_origins <- c(collected_origins, split(unlist(first_element(unpaired_m))$origin, seq_along(unpaired_m)))
   collected_origins <- IntegerList(collected_origins)
   storage <- rbind(storage_1, storage_2, storage_3, storage_4)
-  return(list(collected_origins, storage))
+  storage$type <- c(rep("both_end", nrow(storage_1)),
+                    rep("both_end", nrow(storage_2)),
+                    rep("only_5p_end", nrow(storage_3)),
+                    rep("only_3p_end", nrow(storage_4)))
+  if(length(collected_origins)!=0){
+    storage$origins <- paste(collected_origins, collapse = ",")
+  }else{
+    storage$origins <- character()
+  }
+  return(storage)
 }
 
 
