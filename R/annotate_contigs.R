@@ -15,9 +15,11 @@ annotate_contigs <- function(x,
   p <- x[strand(x) == "+"]
   m <- x[strand(x) == "-"]
   p_out <- .internal_annotation(p, BPPARAM = BPPARAM, insert = insert, genome = genome,
-                                customised_annotation = customised_annotation)
+                                customised_annotation = customised_annotation,
+                                unique_mapq = 30)
   m_out <- .internal_annotation(m, BPPARAM = BPPARAM, insert = insert, genome = genome,
-                                customised_annotation = customised_annotation)
+                                customised_annotation = customised_annotation,
+                                unique_mapq = 30)
   out <- rbind(p_out, m_out)
   names(out) <- c("contig_detail", "nreads", "cluster_origin")
   out$cluster_region <- as.character(x[out$cluster_origin])
@@ -97,7 +99,7 @@ anno_polyA <- function(x){
 #' @importFrom IRanges CharacterList
 .internal_annotation <-  function(clusters,  BPPARAM = MulticoreParam(workers = 3),
                                   customised_annotation = list(anno_polyA),
-                                  insert, genome)
+                                  insert, genome, unique_mapq = 30)
   # Annotating the clustered reads, the partner reads from the read cluster ,
   # and long contigs that consist of clustered reads and their partner reads.
   # 1. Aligning the sequence to the insert, LINE1 in this case
@@ -119,9 +121,12 @@ anno_polyA <- function(x){
   flat_cluster_contigs <- unlist(clusters$cluster_contigs)
   flat_partner_contigs <- unlist(clusters$partner_contigs)
   flat_long_contigs <- unlist(clusters$long_contigs)
-  cluster_anno <- annotate_seq(flat_cluster_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, insert = insert, genome = genome)
-  partner_anno <- annotate_seq(flat_partner_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, insert = insert, genome = genome)
-  long_anno <- annotate_seq(flat_long_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation, insert = insert, genome = genome)
+  cluster_anno <- annotate_seq(flat_cluster_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation,
+                               insert = insert, genome = genome, unique_mapq = unique_mapq)
+  partner_anno <- annotate_seq(flat_partner_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation,
+                               insert = insert, genome = genome, unique_mapq = unique_mapq)
+  long_anno <- annotate_seq(flat_long_contigs, BPPARAM = BPPARAM, customised_annotation = customised_annotation,
+                            insert = insert, genome = genome, unique_mapq = unique_mapq)
   cluster_grp <- factor(rep(names(clusters), lengths(clusters$cluster_contigs)), levels = names(clusters))
   partner_grp <- factor(rep(names(clusters), lengths(clusters$partner_contigs)), levels = names(clusters))
   long_grp <- factor(rep(names(clusters), lengths(clusters$long_contigs)), levels = names(clusters))
@@ -179,7 +184,9 @@ anno_polyA <- function(x){
 #' @importFrom BiocGenerics start end width 'start<-' 'end<-'
 
 annotate_seq <- function(seq, insert, genome,
-                         BPPARAM = MulticoreParam(workers = 3), customised_annotation = NULL)
+                         BPPARAM = MulticoreParam(workers = 3),
+                         customised_annotation = NULL,
+                         unique_mapq = 20)
   # This function annotates chimeric sequences that consist of any multi-mapped sequences/non-reference sequence and any genomic regions.
   # It first mapped the bait (repeated regions/non-reference sequence), then the genomic regions by bwa
   # Written by Cheuk-Ting Law
@@ -214,7 +221,7 @@ annotate_seq <- function(seq, insert, genome,
   aln_2 <- bplapply(clipped_seq_1, bwa_alignment, call_bwa = "bwa mem ",
                     samtools_param = "-F 128 -F 4", BPPARAM = BPPARAM, ref = genome)
   aln_2 <- lapply(aln_2, convertingHtoS, unique_id = "QNAME")
-  aln_2 <- lapply(aln_2, function(x)x[x$MAPQ > 10,])
+  aln_2 <- lapply(aln_2, function(x)x[x$MAPQ > unique_mapq,])
   aln_2 <- lapply(aln_2, function(x){x$unified_cigar <- unify_cigar_strand(x$CIGAR, flag = x$FLAG, to = "+"); x})
 
   mapping_2 <- lapply(aln_2, sam2gr)
