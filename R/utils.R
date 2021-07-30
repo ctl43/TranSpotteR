@@ -26,12 +26,14 @@ convert_character2gr <- function(y, extra_info = NULL){
     stop()
   }
   y <- unlist(y)
-  y <- do.call(rbind, strsplit(y, ":|-"))
-  y[, 4][y[, 4] == ""] <- "-" # adding back the negative strand
-  y <- data.frame(y)
-  y[, 2] <- as.integer(y[, 2])
-  y[, 3] <- as.integer(y[, 3])
-  gr <- GRanges(seqnames=y[, 1], IRanges(start = y[, 2], end = y[, 3]), strand = y[, 4])
+  y <- strsplit(y, ":")
+  y <- do.call(rbind, y)
+  chr <- y[,1]
+  strand <- y[,3]
+  y <- IntegerList(strsplit(y[, 2], "-"))
+  start <- unlist(first_element(y))
+  end <- unlist(last_element(y))
+  gr <- GRanges(seqnames=chr, IRanges(start = start, end = end), strand = strand)
 
   if(!is.null(extra_info)){
     extra_info <- lapply(extra_info, unlist)
@@ -370,80 +372,48 @@ last_element <- function(x, invert = FALSE){
 #' @export
 #' @importFrom BiocGenerics unstrand start end
 #' @importFrom IRanges LogicalList IntegerList
-how_many_regions_in_range <- function(x, tol = 10000){
-  n <- lengths(x)
-  grp <- factor(rep(seq_along(x), n), levels = seq_along(x))
-  flat <- unlist(x)
-  flat$grp <- grp
-  flat <- sort(unstrand(flat))
-  no_first_start <- start(flat)[duplicated(flat$grp)]
-  no_first_start <- IntegerList(split(no_first_start, flat$grp[duplicated(flat$grp)]))
-  no_last_end <- rev(rev(end(flat))[duplicated(rev(flat$grp))])
-  no_last_end <- IntegerList(split(no_last_end, rev(rev(flat$grp)[duplicated(rev(flat$grp))])))
-  dist_diff <- no_first_start - no_last_end
-  seq_is_dup <- duplicated(split(seqnames(flat), flat$grp))
-  tmp_grp <- factor(rep(seq_along(seq_is_dup), lengths(seq_is_dup)), levels = seq_along(seq_is_dup))
-  tmp_1 <- unlist(seq_is_dup, use.names = FALSE)
-  seq_is_dup <- LogicalList(split(tmp_1[duplicated(tmp_grp)], tmp_grp[duplicated(tmp_grp)]))
-  dist_is_diff <- abs(dist_diff) > tol
-  n_diff_regions <- sum(!((!dist_is_diff) & seq_is_dup)) + 1
-  n_diff_regions[lengths(x)==0] <- 0
-  n_diff_regions
+how_many_regions_in_range <- function(x, tol = 10000, ignore_strand = TRUE){
+  lengths(merge_granges(x, tol)[[2]], ignore_strand = ignore_strand)
 }
 
 #' @export
-unstranded_merge_glist <- function(x, tol = 10000){
-  n <- lengths(x)
-  grp <- factor(rep(seq_along(x), n), levels = seq_along(x))
-  flat <- unlist(x)
-  strand(flat) <- "*"
-  flat$grp <- grp
-  flat <- sort(unstrand(flat))
-  no_first_start <- start(flat)[duplicated(flat$grp)]
-  no_first_start <- IntegerList(split(no_first_start, flat$grp[duplicated(flat$grp)]))
-  no_last_end <- rev(rev(end(flat))[duplicated(rev(flat$grp))])
-  no_last_end <- IntegerList(split(no_last_end, rev(rev(flat$grp)[duplicated(rev(flat$grp))])))
-  dist_diff <- no_first_start - no_last_end
-  seq_is_dup <- duplicated(split(seqnames(flat), flat$grp))
-  tmp_grp <- factor(rep(seq_along(seq_is_dup), lengths(seq_is_dup)), levels = seq_along(seq_is_dup))
-  tmp_1 <- unlist(seq_is_dup, use.names = FALSE)
-  seq_is_dup <- LogicalList(split(tmp_1[duplicated(tmp_grp)], tmp_grp[duplicated(tmp_grp)]))
-  dist_is_diff <- abs(dist_diff) > tol
-  is_ol <- (!dist_is_diff) & seq_is_dup
-  if(sum(sum(is_ol)) == 0){
-    return(x)
-  }
-  ol_grp <- rep(seq_along(is_ol), lengths(is_ol))
-  is_ol <- LogicalList(split(c(rep(FALSE, length(is_ol)), unlist(is_ol, use.names = FALSE)),
-                             c(seq_along(is_ol), ol_grp))) # appending a TRUE at the first position
-  is_empty <- lengths(x) == 0
-  if(any(is_empty)){
-    is_ol[which(is_empty)] <- rep(LogicalList(logical(0L)), sum(is_empty))
-  }
-  merged_grp <- cumsum(!is_ol)
-  ordered_flat <- unlist(split(flat, flat$grp))
-  merged_grp <- paste0(unlist(merged_grp), "_", ordered_flat$grp)
-  final_grp <- unlist(unique(IntegerList(split(as.integer(ordered_flat$grp), merged_grp))), use.names = FALSE)
-  final_grp <- factor(final_grp, levels = levels(grp))
-  out <- split(unlist(range(split(ordered_flat, merged_grp)), use.names = FALSE), final_grp)
-  names(out) <- names(x)
-  return(out)
-}
-
-#' @export
-merge_glist <- function(grl, tol = 10000, ignore.strand = TRUE){
-  if(ignore.strand){
-    return(unstranded_merge_glist(grl, tol = tol))
+#' @importFrom S4Vectors split
+merge_granges <- function(x, tol, ignore_strand = FALSE){
+  is_grlist <- class(x)=="CompressedGRangesList"
+  if(is_grlist){
+    grp <- get_list_grp(x, as_factor = TRUE)
+    gr <- unlist(x)
   }else{
-    p_merged <- unstranded_merge_glist(grl[strand(grl)=="+"], tol = tol)
-    strand(p_merged) <- "+"
-    m_merged <- unstranded_merge_glist(grl[strand(grl)=="-"], tol = tol)
-    strand(m_merged) <- "-"
-    p_grp <- rep(names(p_merged), lengths(p_merged))
-    m_grp <- rep(names(m_merged), lengths(m_merged))
-    merged <- c(unlist(p_merged), unlist(m_merged))
-    grp <- factor(c(p_grp, m_grp), levels = names(grl))
-    return(split(merged, grp))
+    gr <- x
+    grp <- rep(1, length(gr), as_factor = TRUE)
+  }
+  chrom <- as.integer(seqnames(gr))
+  start <- as.integer(start(gr))
+  end <- as.integer(end(gr))
+
+  if(ignore_strand){
+    strand <- rep(1, length(gr), as_factor = TRUE)
+    gr <- unstrand(gr)
+  }else{
+    strand <- as.integer(factor(strand(gr), levels = c("+", "-", "*")))
+  }
+
+  o <- order(grp, strand, chrom, start, end) # MUST BE SORTED LIKE THIS
+  idx <- rep(0, length(gr))
+  idx[o] <- cxx_merge_ranges(chrom[o], start[o], end[o], grp = grp[o], strand = strand[o], tol = tol)
+  y <- IntegerList(split(idx, grp))
+  members <- split(gr, unlist(idx))
+  megred <- unlist(range(members))
+  out_grp <- y - unname(cumsum(c(0, head(lengths(unique(y)), -1)))) # converting the idx to each merged
+  out_grp <- IntegerList(out_grp)
+
+  if(is_grlist){
+    merged_grp <- unique(y)
+    out_merged <- split(megred, get_list_grp(merged_grp, as_factor = TRUE))
+    names(out_grp) <- names(out_merged) <- names(x)
+    return(list(idx = out_grp, regions = out_merged))
+  }else{
+    return(list(idx = unlist(out_grp, use.names = FALSE), regions = megred))
   }
 }
 
